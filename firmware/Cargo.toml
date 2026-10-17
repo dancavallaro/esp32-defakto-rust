@@ -1,0 +1,32 @@
+[package]
+name = "demo-firmware"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+
+[[bin]]
+name = "demo-firmware"
+harness = false # no test harness on the target
+
+[features]
+# Seeed XIAO ESP32C6, standing in for the Waveshare board: no display or touch.
+xiao = []
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+defakto = { path = "../defakto" }
+demo = { path = "../demo" }
+esp-idf-svc = "0.53"
+anyhow = "1"
+log = "0.4"
+toml-cfg = "0.2"
+qrcodegen = "1.8"
+
+[build-dependencies]
+embuild = "0.33.5"

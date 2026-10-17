@@ -1,0 +1,107 @@
+mod attest;
+mod button;
+mod config;
+mod console;
+mod http;
+mod net;
+mod worker;
+
+use std::sync::mpsc;
+use std::time::Duration;
+
+use anyhow::Result;
+use demo::app::{App, Event, Status};
+use demo::flow;
+use esp_idf_svc::eventloop::EspSystemEventLoop;
+use esp_idf_svc::hal::peripherals::Peripherals;
+use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use log::{info, warn};
+
+use crate::config::CONFIG;
+use crate::http::EspClient;
+use crate::worker::{EspClock, Worker};
+
+const POLL: Duration = Duration::from_millis(20);
+
+fn main() -> Result<()> {
+    esp_idf_svc::sys::link_patches();
+    esp_idf_svc::log::EspLogger::initialize_default();
+    info!("demo-firmware {}", env!("CARGO_PKG_VERSION"));
+
+    let peripherals = Peripherals::take()?;
+    let sysloop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
+
+    #[cfg(feature = "xiao")]
+    let _antenna = xiao::enable_antenna(peripherals.pins.gpio3, peripherals.pins.gpio14)?;
+
+    let _net = net::connect(peripherals.modem, sysloop, nvs.clone())?;
+    info!("time {} (unix)", net::unix_now());
+
+    let cfg = config::flow_config();
+    let attestor = attest::build(CONFIG.default_attestor, CONFIG.device_id, &nvs)?;
+    let mut status = Status { wifi: true, svid: false, attestor: attestor.label().to_string() };
+
+    info!("free heap {} B before attesting", free_heap());
+    match flow::fetch_svid(&mut EspClient, &cfg, attestor.as_ref(), flow_now(), &worker::nonce()) {
+        Ok(svid) => {
+            info!("attested as {}", svid.spiffe_id);
+            status.svid = true;
+        }
+        Err(e) => warn!("boot attestation failed: {e}"),
+    }
+    info!("free heap {} B after, low-water {} B", free_heap(), min_free_heap());
+
+    let (events_tx, events) = mpsc::channel();
+    let worker = Worker::spawn(cfg, attestor, events_tx)?;
+    let mut button = button::Button::new(peripherals.pins.gpio9)?;
+    let mut app = App::new(status);
+    console::render(&app.screen, &app.status);
+
+    loop {
+        let before = app.screen.clone();
+        if button.pressed() {
+            worker.send(app.handle(Event::Tap));
+        }
+        while let Ok(ev) = events.try_recv() {
+            worker.send(app.handle(ev));
+        }
+        if app.screen != before {
+            console::render(&app.screen, &app.status);
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+fn flow_now() -> i64 {
+    use demo::flow::Clock;
+    EspClock.unix_now()
+}
+
+fn free_heap() -> u32 {
+    unsafe { esp_idf_svc::sys::esp_get_free_heap_size() }
+}
+
+fn min_free_heap() -> u32 {
+    unsafe { esp_idf_svc::sys::esp_get_minimum_free_heap_size() }
+}
+
+#[cfg(feature = "xiao")]
+mod xiao {
+    use anyhow::Result;
+    use esp_idf_svc::hal::gpio::{Gpio14, Gpio3, Output, PinDriver};
+
+    pub type Antenna = (PinDriver<'static, Output>, PinDriver<'static, Output>);
+
+    /// The XIAO routes the radio through an RF switch: GPIO3 low powers it and
+    /// GPIO14 low picks the built-in ceramic antenna. Dropping the drivers would
+    /// release the pins, so the caller holds them for the program's lifetime.
+    pub fn enable_antenna(power: Gpio3<'static>, select: Gpio14<'static>) -> Result<Antenna> {
+        let mut power = PinDriver::output(power)?;
+        power.set_low()?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let mut select = PinDriver::output(select)?;
+        select.set_low()?;
+        Ok((power, select))
+    }
+}

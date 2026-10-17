@@ -22,8 +22,10 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
   screen shows (`claims`).
 - `host/` (`demo-host`): a Mac CLI that runs the same flow against the live servers before any hardware is
   involved. It has two subcommands: `svid` and `login`.
-- `firmware/` (`demo-firmware`, when present): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded
-  from the workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`.
+- `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
+  workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
+  from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. Until the display and touch drivers exist,
+  `console.rs` prints each screen to serial (the QR code as text) and the BOOT button (GPIO9) is the tap.
 
 Everything that can be tested without hardware lives in `defakto` or `demo`, so the firmware stays a thin layer
 that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core` split.
@@ -40,6 +42,12 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 - Toolchain: the rustup proxies in `~/.cargo/bin` must come before Homebrew's `cargo` on PATH. Homebrew's
   stable-only Rust ignores `rust-toolchain.toml`, so it can't build the firmware. On its first build, the firmware
   downloads ESP-IDF into `firmware/.embuild/` through `esp-idf-sys`.
+- Firmware, from `firmware/`: `cargo run --release` builds, flashes and opens the serial monitor. Add
+  `--features xiao` for the Seeed XIAO ESP32C6 stand-in board, which needs its RF switch enabled. The device
+  secret lives in NVS: generate `nvs.bin` from `esp32-enroll`'s `nvs.csv` with
+  `.embuild/espressif/esp-idf/v5.5.5/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate
+  nvs.csv nvs.bin 0x6000` (run it with the IDF venv's `python3`), then `espflash write-bin 0x9000 nvs.bin`. App
+  flashes leave it in place.
 
 ## Constraints
 

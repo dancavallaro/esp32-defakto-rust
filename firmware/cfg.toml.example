@@ -1,0 +1,16 @@
+# Copy to cfg.toml (gitignored) and fill in. Read at build time by toml-cfg.
+[demo-firmware]
+wifi_ssid = ""
+wifi_psk = ""
+# From the IdP's OIDC discovery document.
+login_device_url = ""
+login_token_url = ""
+login_client_id = ""
+# The Trust Domain Server's issuer URL (the `iss` of any JWT-SVID it issues).
+svid_audience = ""
+# Optional; these are the defaults.
+# device_id = "defakto-demo"
+# subject_token_type = "urn:ietf:params:oauth:token-type:id_token"
+# requested_token_type = "urn:defakto:security:token-type:jwt-svid-obo"
+# obo_audience = "defakto-demo"
+# default_attestor = "nvs"
