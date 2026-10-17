@@ -1,10 +1,14 @@
 //! Builds attestors by kind. The worker only ever sees `dyn Attestor`, so
-//! backends switch at runtime and the TEE slots in here too.
+//! backends switch at runtime.
 
 use anyhow::{bail, ensure, Context, Result};
-use defakto::attest::{AttestError, Attestor, HmacAttestor, HmacKey, SoftwareHmacKey};
+use defakto::attest::{AttestError, Attestor, HmacAttestor, HmacKey, SoftwareHmacKey, TeeAttestor, TeeTokenSource};
+use defakto::tee_evidence::tee_public_key;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use esp_idf_svc::sys::{self, esp_err_t, EspError};
+use log::info;
+
+use crate::tee::EspTee;
 
 /// Where `esp32-enroll generate` puts the secret (see its `nvs.csv`).
 const SECRET_NAMESPACE: &str = "spiffe";
@@ -32,6 +36,13 @@ impl Attestors {
         match kind {
             "nvs" => Ok(Box::new(HmacAttestor::new(id, nvs_key(&self.nvs)?, "NVS HMAC"))),
             "efuse" => Ok(Box::new(HmacAttestor::new(id, EfuseHmacKey::new(self.efuse_key)?, "eFuse HMAC"))),
+            "tee" => {
+                // Logged so the key can be enrolled with the webhook.
+                let token = EspTee.token(0, 0)?;
+                let token = token.strip_suffix(&[0]).unwrap_or(&token);
+                info!("TEE attestation key: {}", tee_public_key(token)?);
+                Ok(Box::new(TeeAttestor::new(id, EspTee)))
+            }
             other => bail!("unknown attestor {other:?}"),
         }
     }

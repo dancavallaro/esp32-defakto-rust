@@ -31,3 +31,9 @@ embedded-graphics = "0.8"
 
 [build-dependencies]
 embuild = "0.33.5"
+
+# The TEE attestation service's REE-side API, bound as `esp_idf_svc::sys::tee`.
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = [".embuild/esp-idf/components/esp_tee/subproject/components/tee_attestation"]
+bindings_header = "src/tee_bindings.h"
+bindings_module = "tee"

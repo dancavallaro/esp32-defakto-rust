@@ -1,4 +1,7 @@
-# Name,   Type, SubType, Offset,  Size
-nvs,      data, nvs,     0x9000,  0x6000
-phy_init, data, phy,     0xf000,  0x1000
-factory,  app,  factory, 0x10000, 0x300000
+# Name,         Type, SubType, Offset,  Size
+# nvs stays at 0x9000 so the HMAC secret survives the move to the TEE layout.
+nvs,            data, nvs,     0x9000,  0x6000
+phy_init,       data, phy,     0xf000,  0x1000
+tee,            app,  tee_0,   0x10000, 192K
+secure_storage, data, nvs,     0x40000, 64K
+factory,        app,  factory, 0x50000, 0x300000

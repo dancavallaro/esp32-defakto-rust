@@ -6,6 +6,7 @@ mod console;
 mod display;
 mod http;
 mod net;
+mod tee;
 #[cfg(not(feature = "xiao"))]
 mod touch;
 #[cfg(not(feature = "xiao"))]
@@ -32,6 +33,9 @@ use crate::worker::{Active, EspClock, Worker};
 
 const POLL: Duration = Duration::from_millis(20);
 const RESTART_DELAY: Duration = Duration::from_secs(5);
+
+// Puts the crate version in the image header, which the TEE reports as `sw_claims.app.ver`.
+esp_idf_svc::sys::esp_app_desc!();
 
 fn main() {
     esp_idf_svc::sys::link_patches();

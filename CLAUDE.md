@@ -58,6 +58,14 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   `.embuild/esp-idf/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate
   nvs.csv nvs.bin 0x6000` (run it with the IDF venv's `python3`), then `espflash write-bin 0x9000 nvs.bin`. App
   flashes leave it in place.
+- ESP-TEE: the firmware always builds with the TEE. `default_attestor = "tee"` in `cfg.toml` attests with it, and
+  `"nvs"` (the default) uses the HMAC secret. The runner is `flash.sh`, because `espflash` can't parse the
+  `tee_0` partition subtype. It writes the bootloader, `partitions.csv`, the TEE image and the app by offset. The
+  layout keeps `nvs` at `0x9000`, followed by `tee` at `0x10000`, `secure_storage` at `0x40000` and the app at
+  `0x50000`. Flash with `TEE_PROVISION=1` on a board's first TEE flash, or after `secure_storage` held anything
+  else: it erases the region, so the TEE makes a new attestation key, which must then be enrolled again. The boot
+  log prints the key as `TEE attestation key: …`. The TEE reports the crate version in `firmware/Cargo.toml` as
+  `app_version`.
 
 ## Constraints
 

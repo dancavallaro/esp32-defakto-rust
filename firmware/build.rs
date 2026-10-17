@@ -5,7 +5,26 @@ fn main() {
     println!("cargo:rerun-if-changed=cfg.toml");
     assert!(Path::new("cfg.toml").exists(), "copy cfg.toml.example to cfg.toml and fill it in");
     check_idf_patched();
+    declare_app_desc_cfgs();
     embuild::espidf::sysenv::output();
+}
+
+/// `esp_app_desc!` expands to cfgs that embuild sets in this crate but never declares.
+fn declare_app_desc_cfgs() {
+    for cfg in [
+        "esp_idf_app_build_type_pure_ram_app",
+        "esp_idf_app_compile_time_date",
+        "esp_idf_app_reproducible_build",
+        "esp_idf_idf_target_linux",
+        "esp_idf_version_at_least_5_3_2",
+        "esp_idf_version_at_least_5_4_0",
+        "esp_idf_version_at_least_6_1_0",
+        "esp_idf_version_patch_at_least_5_1_7",
+        "esp_idf_version_patch_at_least_5_2_3",
+        "esp_idf_version_patch_at_least_5_3_2",
+    ] {
+        println!("cargo:rustc-check-cfg=cfg({cfg})");
+    }
 }
 
 /// An unpatched ESP-IDF still builds, but the TEE then loses its attestation key on every boot.
