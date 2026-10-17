@@ -23,7 +23,7 @@ use demo::pacing::Pacer;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use log::{info, warn};
+use log::{error, info, warn};
 
 use crate::attest::Attestors;
 use crate::config::CONFIG;
@@ -31,12 +31,23 @@ use crate::http::EspClient;
 use crate::worker::{Active, EspClock, Worker};
 
 const POLL: Duration = Duration::from_millis(20);
+const RESTART_DELAY: Duration = Duration::from_secs(5);
 
-fn main() -> Result<()> {
+fn main() {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
     info!("demo-firmware {}", env!("CARGO_PKG_VERSION"));
 
+    // A demo nobody can fix on the spot is better off retrying than sitting
+    // on a dark screen, e.g. while the hotspot comes up.
+    if let Err(e) = run() {
+        error!("{e:#}; restarting in {} s", RESTART_DELAY.as_secs());
+        std::thread::sleep(RESTART_DELAY);
+        unsafe { esp_idf_svc::sys::esp_restart() };
+    }
+}
+
+fn run() -> Result<()> {
     let peripherals = Peripherals::take()?;
     let sysloop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;

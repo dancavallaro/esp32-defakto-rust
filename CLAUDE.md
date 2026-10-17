@@ -28,6 +28,9 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
   strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens. `console.rs` also prints
   each screen to serial (the QR code as text), and is the only output with `--features xiao`. `touch` polls the
   AXS5106L, and `demo::gesture` turns its samples into taps and long presses. The BOOT button (GPIO9) also taps.
+  A long press on the idle screen switches the attestor between `nvs` and `efuse` and re-attests; the choice is
+  kept in NVS (namespace `demo`, key `attestor`). The Waveshare board's secret is burned into eFuse key block 5
+  (`HMAC_UP`, read-protected), which `efuse_hmac_key` in `cfg.toml` names.
 
 Everything that can be tested without hardware lives in `defakto` or `demo`, so the firmware stays a thin layer
 that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core` split.
