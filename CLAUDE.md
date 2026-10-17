@@ -49,9 +49,9 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 - ESP-IDF: before the first firmware build, run `firmware/patch-idf.sh`. It sets up `firmware/.embuild/esp-idf`
   (v5.5.5 plus `firmware/patches/esp-tee-rom-read.patch`), which `IDF_PATH` points at. Without the patch, the
   TEE's flash reads break once the app has used flash, and it loses its attestation key on every boot. `build.rs`
-  refuses to build without the patch. Building before running the script makes `esp-idf-sys` download its own
-  default ESP-IDF first, which wastes time. `esp-idf-sys` still installs its tools under
-  `firmware/.embuild/espressif/`.
+  refuses to build without the patch. Without the tree, the build fails early with `esp-idf-sys` unable to
+  "determine esp-idf version from …/.embuild/esp-idf/tools/cmake/version.cmake"; run the script.
+  `esp-idf-sys` still installs its tools under `firmware/.embuild/espressif/`.
 - Firmware, from `firmware/`: `cargo run --release` builds, flashes and opens the serial monitor. Add
   `--features xiao` for the Seeed XIAO ESP32C6 stand-in board, which needs its RF switch enabled. The device
   secret lives in NVS: generate `nvs.bin` from `esp32-enroll`'s `nvs.csv` with

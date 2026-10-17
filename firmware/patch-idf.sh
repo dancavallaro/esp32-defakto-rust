@@ -27,12 +27,13 @@ if git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
     exit 0
 fi
 
+# esp-idf-sys doesn't watch ESP-IDF's sources, so force its libraries to rebuild. Clean
+# first: if cleaning fails, the tree stays unpatched and the next run tries again.
+cargo clean --release -p esp-idf-sys
+cargo clean -p esp-idf-sys
+
 if ! git -C "$tree" apply "$patch"; then
     echo "patches/esp-tee-rom-read.patch does not apply to $tree" >&2
     exit 1
 fi
 echo "ESP-IDF patch applied"
-
-# esp-idf-sys doesn't watch ESP-IDF's sources, so force its libraries to rebuild.
-cargo clean --release -p esp-idf-sys
-cargo clean -p esp-idf-sys

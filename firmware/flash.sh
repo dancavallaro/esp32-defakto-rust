@@ -31,8 +31,9 @@ espflash write-bin --after no-reset 0x10000 "$tee_bin"
 espflash write-bin --after no-reset 0x50000 "$out/app.bin"
 
 # The monitor does the one reset; resetting after each write races its attach.
+# --elf decodes panic backtraces.
 if [ -t 0 ]; then
-    exec espflash monitor
+    exec espflash monitor --elf "$elf"
 else
-    exec espflash monitor --non-interactive
+    exec espflash monitor --non-interactive --elf "$elf"
 fi
