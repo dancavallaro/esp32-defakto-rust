@@ -1,10 +1,10 @@
 [package]
-name = "obo-host"
+name = "demo-host"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-obo-core = { path = "../core" }
+demo = { path = "../demo" }
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }

@@ -1,4 +1,4 @@
-//! Hardware-free protocol and state logic for the Defakto OBO demo.
+//! The demo's login flow and screens, shared by the host CLI and the firmware.
 
 pub mod grpcweb;
 pub mod http;

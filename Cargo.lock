@@ -204,6 +204,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "form_urlencoded",
+ "hex",
+ "hmac",
+ "prost",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "demo-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "demo",
+ "dotenvy",
+ "getrandom",
+ "qr2term",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -487,36 +517,6 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
-]
-
-[[package]]
-name = "obo-core"
-version = "0.1.0"
-dependencies = [
- "base64",
- "form_urlencoded",
- "hex",
- "hmac",
- "prost",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "obo-host"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "dotenvy",
- "getrandom",
- "obo-core",
- "qr2term",
- "serde_json",
- "ureq",
 ]
 
 [[package]]

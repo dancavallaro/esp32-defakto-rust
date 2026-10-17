@@ -1,5 +1,5 @@
 //! Runs the demo's protocol from the Mac, so every server-side setting can be
-//! proven before the firmware exists. Settings come from `OBO_*` env vars,
+//! proven before the firmware exists. Settings come from `DEMO_*` env vars,
 //! optionally loaded from `host/.env`.
 
 mod http;
@@ -11,12 +11,12 @@ use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use clap::{Parser, Subcommand};
-use obo_core::attest::{HmacAttestor, SoftwareHmacKey};
-use obo_core::evidence::{new_nonce, validate_device_id};
-use obo_core::flow::{self, Config};
-use obo_core::jwt::decode_claims;
-use obo_core::oauth::TOKEN_TYPE_ID_TOKEN;
-use obo_core::serverless::SvidToken;
+use demo::attest::{HmacAttestor, SoftwareHmacKey};
+use demo::evidence::{new_nonce, validate_device_id};
+use demo::flow::{self, Config};
+use demo::jwt::decode_claims;
+use demo::oauth::TOKEN_TYPE_ID_TOKEN;
+use demo::serverless::SvidToken;
 
 use crate::http::UreqClient;
 
@@ -54,7 +54,7 @@ fn main() -> Result<()> {
 fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
     anyhow::ensure!(
         !cfg.auth0_domain.is_empty() && !cfg.auth0_client_id.is_empty(),
-        "set OBO_AUTH0_DOMAIN and OBO_AUTH0_CLIENT_ID"
+        "set DEMO_AUTH0_DOMAIN and DEMO_AUTH0_CLIENT_ID"
     );
     let auth = flow::start_login(http, cfg)?;
     let uri = auth.verification_uri_complete.as_deref().unwrap_or(&auth.verification_uri);
@@ -71,7 +71,7 @@ fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
     let obo = flow::exchange_token(http, cfg, &id_token, &svid)?;
     println!("OBO token claims:");
     print_claims(&obo)?;
-    println!("{:#?}", obo_core::jwt::DisplayClaims::from_obo_jwt(&obo)?);
+    println!("{:#?}", demo::jwt::DisplayClaims::from_obo_jwt(&obo)?);
     Ok(())
 }
 
@@ -88,12 +88,12 @@ impl flow::Clock for SystemClock {
 
 fn config() -> Config {
     Config {
-        serverless_url: var_or("OBO_SERVERLESS_URL", flow::SERVERLESS_URL),
-        token_url: var_or("OBO_TOKEN_URL", flow::TOKEN_URL),
-        svid_audience: var_or("OBO_SVID_AUDIENCE", ""),
-        auth0_domain: var_or("OBO_AUTH0_DOMAIN", ""),
-        auth0_client_id: var_or("OBO_AUTH0_CLIENT_ID", ""),
-        subject_token_type: var_or("OBO_SUBJECT_TOKEN_TYPE", TOKEN_TYPE_ID_TOKEN),
+        serverless_url: var_or("DEMO_SERVERLESS_URL", flow::SERVERLESS_URL),
+        token_url: var_or("DEMO_TOKEN_URL", flow::TOKEN_URL),
+        svid_audience: var_or("DEMO_SVID_AUDIENCE", ""),
+        auth0_domain: var_or("DEMO_AUTH0_DOMAIN", ""),
+        auth0_client_id: var_or("DEMO_AUTH0_CLIENT_ID", ""),
+        subject_token_type: var_or("DEMO_SUBJECT_TOKEN_TYPE", TOKEN_TYPE_ID_TOKEN),
     }
 }
 
@@ -102,12 +102,12 @@ fn var_or(name: &str, default: &str) -> String {
 }
 
 fn fetch_svid(http: &mut UreqClient, cfg: &Config) -> Result<SvidToken> {
-    anyhow::ensure!(!cfg.svid_audience.is_empty(), "set OBO_SVID_AUDIENCE");
-    let device_id = var_or("OBO_DEVICE_ID", "c6-demo");
+    anyhow::ensure!(!cfg.svid_audience.is_empty(), "set DEMO_SVID_AUDIENCE");
+    let device_id = var_or("DEMO_DEVICE_ID", "c6-demo");
     validate_device_id(&device_id).map_err(anyhow::Error::msg)?;
     let secret = STANDARD
-        .decode(env::var("OBO_SECRET_B64").context("set OBO_SECRET_B64")?)
-        .context("OBO_SECRET_B64 is not base64")?;
+        .decode(env::var("DEMO_SECRET_B64").context("set DEMO_SECRET_B64")?)
+        .context("DEMO_SECRET_B64 is not base64")?;
     let attestor = HmacAttestor::new(device_id, SoftwareHmacKey(secret), "software HMAC");
 
     let nonce = new_nonce(|b| getrandom::getrandom(b).expect("OS RNG"));

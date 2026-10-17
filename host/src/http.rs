@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::time::Duration;
 
-use obo_core::http::{HttpClient, HttpError, HttpResponse};
+use demo::http::{HttpClient, HttpError, HttpResponse};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_BODY: u64 = 64 * 1024;
