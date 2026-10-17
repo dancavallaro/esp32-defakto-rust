@@ -1,0 +1,9 @@
+target/
+firmware/.embuild/
+firmware/cfg.toml
+*.env
+nvs.csv
+nvs.bin
+secret.bin
+docs/superpowers/
+.superpowers/
