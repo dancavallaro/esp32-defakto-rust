@@ -24,8 +24,10 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
   involved. It has two subcommands: `svid` and `login`.
 - `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
   workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
-  from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. Until the display and touch drivers exist,
-  `console.rs` prints each screen to serial (the QR code as text) and the BOOT button (GPIO9) is the tap.
+  from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. `display` drives the JD9853 panel one
+  strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens. `console.rs` also prints
+  each screen to serial (the QR code as text), and is the only output with `--features xiao`. Until the touch
+  driver exists, the BOOT button (GPIO9) is the tap.
 
 Everything that can be tested without hardware lives in `defakto` or `demo`, so the firmware stays a thin layer
 that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core` split.

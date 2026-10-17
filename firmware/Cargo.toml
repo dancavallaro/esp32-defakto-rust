@@ -27,6 +27,7 @@ anyhow = "1"
 log = "0.4"
 toml-cfg = "0.2"
 qrcodegen = "1.8"
+embedded-graphics = "0.8"
 
 [build-dependencies]
 embuild = "0.33.5"
