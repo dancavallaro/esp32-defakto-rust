@@ -6,4 +6,5 @@ pub mod claims;
 pub mod flow;
 pub mod gesture;
 pub mod login;
+pub mod pacing;
 pub mod text;

@@ -13,12 +13,13 @@ mod ui;
 mod worker;
 
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use demo::app::{App, Event, Status};
 use demo::flow;
 use demo::gesture::Gesture;
+use demo::pacing::Pacer;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
@@ -90,6 +91,8 @@ fn main() -> Result<()> {
         peripherals.pins.gpio19,
         peripherals.pins.gpio20,
     )?;
+    let mut pacer = Pacer::default();
+    let epoch = Instant::now();
 
     loop {
         let (screen, status) = (app.screen.clone(), app.status.clone());
@@ -107,6 +110,9 @@ fn main() -> Result<()> {
             info!("long press");
         }
         while let Ok(ev) = events.try_recv() {
+            pacer.push(ev);
+        }
+        while let Some(ev) = pacer.next(&app.screen, epoch.elapsed()) {
             worker.send(app.handle(ev));
         }
         if app.screen != screen || app.status != status {
