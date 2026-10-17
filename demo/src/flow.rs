@@ -25,8 +25,11 @@ pub struct Config {
     pub serverless_url: String,
     pub token_url: String,
     pub svid_audience: String,
-    pub auth0_domain: String,
-    pub auth0_client_id: String,
+    /// The IdP's device authorization and token endpoints, from its OIDC
+    /// discovery document. They differ per IdP, so neither is derived.
+    pub login_device_url: String,
+    pub login_token_url: String,
+    pub login_client_id: String,
     pub subject_token_type: String,
 }
 
@@ -65,9 +68,8 @@ pub fn fetch_svid(
 }
 
 pub fn start_login(http: &mut impl HttpClient, cfg: &Config) -> Result<DeviceAuthorization, FlowError> {
-    let url = format!("https://{}/oauth/device/code", cfg.auth0_domain);
-    let body = login::device_code_form(&cfg.auth0_client_id, LOGIN_SCOPE);
-    let resp = http.post(&url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+    let body = login::device_code_form(&cfg.login_client_id, LOGIN_SCOPE);
+    let resp = http.post(&cfg.login_device_url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
     Ok(login::parse_device_authorization(&resp)?)
 }
 
@@ -80,8 +82,7 @@ pub fn wait_for_id_token(
     clock: &mut dyn Clock,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<String, FlowError> {
-    let url = format!("https://{}/oauth/token", cfg.auth0_domain);
-    let body = login::device_token_form(&cfg.auth0_client_id, &auth.device_code);
+    let body = login::device_token_form(&cfg.login_client_id, &auth.device_code);
     let deadline = clock.unix_now() + auth.expires_in as i64;
     let mut interval = Duration::from_secs(auth.interval.unwrap_or(DEFAULT_POLL_INTERVAL));
 
@@ -97,7 +98,7 @@ pub fn wait_for_id_token(
         if cancelled() {
             return Err(FlowError::Cancelled);
         }
-        let resp = http.post(&url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+        let resp = http.post(&cfg.login_token_url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
         match login::parse_poll(&resp)? {
             PollOutcome::Pending => {}
             PollOutcome::SlowDown => interval += SLOW_DOWN_STEP,
@@ -155,8 +156,9 @@ mod tests {
             serverless_url: SERVERLESS_URL.into(),
             token_url: TOKEN_URL.into(),
             svid_audience: "https://issuer.example".into(),
-            auth0_domain: "t.us.auth0.com".into(),
-            auth0_client_id: "cid".into(),
+            login_device_url: "https://idp.example/device".into(),
+            login_token_url: "https://idp.example/token".into(),
+            login_client_id: "cid".into(),
             subject_token_type: token_exchange::TOKEN_TYPE_ID_TOKEN.into(),
         }
     }
@@ -183,7 +185,7 @@ mod tests {
         let body = r#"{"device_code":"dc","user_code":"U","verification_uri":"https://t/a","expires_in":900}"#;
         let mut http = FakeHttp::default().reply(200, body);
         assert_eq!(start_login(&mut http, &cfg()).unwrap().device_code, "dc");
-        assert_eq!(http.requests[0].url, "https://t.us.auth0.com/oauth/device/code");
+        assert_eq!(http.requests[0].url, "https://idp.example/device");
         assert_eq!(http.requests[0].body, login::device_code_form("cid", LOGIN_SCOPE).into_bytes());
     }
 
@@ -201,7 +203,7 @@ mod tests {
         let secs: Vec<u64> = clock.slept.iter().map(Duration::as_secs).collect();
         assert_eq!(secs, [5, 5, 10]);
         for req in &http.requests {
-            assert_eq!(req.url, "https://t.us.auth0.com/oauth/token");
+            assert_eq!(req.url, "https://idp.example/token");
             assert_eq!(req.body, login::device_token_form("cid", "dc").into_bytes());
         }
     }

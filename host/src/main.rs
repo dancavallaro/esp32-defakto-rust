@@ -54,8 +54,8 @@ fn main() -> Result<()> {
 /// Ctrl-C ends the process, which is all the cancellation the CLI needs.
 fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
     anyhow::ensure!(
-        !cfg.auth0_domain.is_empty() && !cfg.auth0_client_id.is_empty(),
-        "set DEMO_AUTH0_DOMAIN and DEMO_AUTH0_CLIENT_ID"
+        [&cfg.login_device_url, &cfg.login_token_url, &cfg.login_client_id].iter().all(|v| !v.is_empty()),
+        "set DEMO_LOGIN_DEVICE_URL, DEMO_LOGIN_TOKEN_URL and DEMO_LOGIN_CLIENT_ID"
     );
     let auth = flow::start_login(http, cfg)?;
     let uri = auth.verification_uri_complete.as_deref().unwrap_or(&auth.verification_uri);
@@ -92,8 +92,9 @@ fn config() -> Config {
         serverless_url: var_or("DEMO_SERVERLESS_URL", flow::SERVERLESS_URL),
         token_url: var_or("DEMO_TOKEN_URL", flow::TOKEN_URL),
         svid_audience: var_or("DEMO_SVID_AUDIENCE", ""),
-        auth0_domain: var_or("DEMO_AUTH0_DOMAIN", ""),
-        auth0_client_id: var_or("DEMO_AUTH0_CLIENT_ID", ""),
+        login_device_url: var_or("DEMO_LOGIN_DEVICE_URL", ""),
+        login_token_url: var_or("DEMO_LOGIN_TOKEN_URL", ""),
+        login_client_id: var_or("DEMO_LOGIN_CLIENT_ID", ""),
         subject_token_type: var_or("DEMO_SUBJECT_TOKEN_TYPE", TOKEN_TYPE_ID_TOKEN),
     }
 }
