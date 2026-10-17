@@ -8,14 +8,14 @@ use std::ops::Range;
 use std::time::Instant;
 
 use anyhow::Result;
-use demo::app::{Screen, Status};
+use demo::app::{Progress, Screen, Status, Step};
 use demo::claims::DisplayClaims;
 use demo::text::{abbreviate, countdown, without_scheme, wrap};
 use embedded_graphics::mono_font::iso_8859_1::{FONT_10X20, FONT_6X10, FONT_8X13};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Circle, PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{Circle, PrimitiveStyle, Polyline, Rectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 use qrcodegen::QrCode;
 
@@ -110,7 +110,7 @@ fn draw(s: &mut Strip, f: &Frame) {
         Screen::Qr { verification_uri, user_code, issued_at, expires_at, .. } => {
             sign_in(s, f.qr, verification_uri, user_code, (*expires_at - f.now, *expires_at - *issued_at))
         }
-        Screen::Progress(_) => message(s, "Signing in...", None),
+        Screen::Progress(p) => progress(s, p, &f.status.attestor),
         Screen::Result(claims) => result(s, claims, f.now),
         Screen::Error(msg) => message(s, "Sign-in failed", Some(msg)),
     }
@@ -181,12 +181,48 @@ fn result(s: &mut Strip, c: &DisplayClaims, now: i64) {
     centered(s, "tap to reset", FOOTER_TOP, &BODY, DIM);
 }
 
+fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
+    let mut y = centered(s, "Signing in...", BAR_H as i32 + 20, &HEADING, FG) + 20;
+    let rows = [
+        (p.attested, "device attested", attestor),
+        (p.signed_in, "user signed in", "ID token from IdP"),
+        (p.got_svid, "got JWT-SVID", "serverless API"),
+        (p.exchanged, "token exchange", "RFC 8693 -> OBO SVID"),
+    ];
+    for (step, label, caption) in rows {
+        let label_color = if step == Step::Pending { DIM } else { FG };
+        step_mark(s, step, Point::new(MARGIN + 2, y + 1));
+        text(s, label, Point::new(MARGIN + 22, y), &HEADING, label_color, Alignment::Left);
+        text(s, caption, Point::new(MARGIN + 22, y + 15), &BODY, DIM, Alignment::Left);
+        y += 44;
+    }
+}
+
+/// A check for done, an ellipsis for active, a hollow dot for pending. Drawn
+/// as shapes because the fonts have no ✓ or …
+fn step_mark(s: &mut Strip, step: Step, at: Point) {
+    match step {
+        Step::Done => {
+            let points = [at + Point::new(0, 6), at + Point::new(4, 10), at + Point::new(11, 1)];
+            let _ = Polyline::new(&points).into_styled(PrimitiveStyle::with_stroke(OK, 2)).draw(s);
+        }
+        Step::Active => {
+            for i in 0..3 {
+                let _ = Circle::new(at + Point::new(i * 4, 8), 3).into_styled(PrimitiveStyle::with_fill(WARN)).draw(s);
+            }
+        }
+        Step::Pending => {
+            let _ = Circle::new(at + Point::new(1, 2), 9).into_styled(PrimitiveStyle::with_stroke(DIM, 1)).draw(s);
+        }
+    }
+}
+
 /// A centered heading, plus an optional detail paragraph under it.
 fn message(s: &mut Strip, heading: &str, detail: Option<&str>) {
     let color = if detail.is_some() { WARN } else { FG };
     let y = centered(s, heading, 120, &HEADING, color) + 10;
     if let Some(detail) = detail {
-        paragraph(s, detail, y, FG, Alignment::Left);
+        centered(s, detail, y, &BODY, FG);
         centered(s, "tap to start over", FOOTER_TOP, &BODY, DIM);
     }
 }
