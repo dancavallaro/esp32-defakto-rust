@@ -5,6 +5,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::evidence::{evidence_json, signing_string};
+use crate::tee_evidence::{tee_envelope, tee_nonce, TEE_CLIENT_ID};
 
 /// What goes into one `MethodAttestation` of a serverless request.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,8 +69,45 @@ impl HmacKey for SoftwareHmacKey {
     }
 }
 
+/// Produces ESP-TEE attestation tokens; the firmware's implementation calls into the TEE.
+pub trait TeeTokenSource: Send {
+    fn token(&self, nonce: u32, client_id: u32) -> Result<Vec<u8>, AttestError>;
+}
+
+pub struct TeeAttestor<T: TeeTokenSource> {
+    device_id: String,
+    source: T,
+}
+
+impl<T: TeeTokenSource> TeeAttestor<T> {
+    pub fn new(device_id: String, source: T) -> Self {
+        Self { device_id, source }
+    }
+}
+
+impl<T: TeeTokenSource> Attestor for TeeAttestor<T> {
+    fn label(&self) -> &str {
+        "ESP-TEE"
+    }
+
+    fn evidence(&self, ts: i64, nonce: &str) -> Result<Evidence, AttestError> {
+        let mut token = self.source.token(tee_nonce(&self.device_id, ts, nonce), TEE_CLIENT_ID)?;
+        // The TEE counts the C string's terminator in the token's length.
+        while token.last() == Some(&0) {
+            token.pop();
+        }
+        Ok(Evidence {
+            method_type: "extension",
+            method_version: "1.0",
+            payload: tee_envelope(&self.device_id, ts, nonce, &token)?.into_bytes(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     // From `esp32-enroll golden defakto-demo AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8= 1792200000 0011223344556677`.
@@ -87,5 +125,43 @@ mod tests {
         assert_eq!(ev.method_version, "1.0");
         assert_eq!(String::from_utf8(ev.payload).unwrap(), GOLDEN_EVIDENCE);
         assert_eq!(attestor.label(), "software HMAC");
+    }
+
+    const SAMPLE_TOKEN: &[u8] = include_bytes!("../testdata/tee_token_sample.json");
+
+    struct FakeTee {
+        calls: Arc<Mutex<Option<(u32, u32)>>>,
+        reply: Result<Vec<u8>, AttestError>,
+    }
+
+    impl TeeTokenSource for FakeTee {
+        fn token(&self, nonce: u32, client_id: u32) -> Result<Vec<u8>, AttestError> {
+            *self.calls.lock().unwrap() = Some((nonce, client_id));
+            self.reply.clone()
+        }
+    }
+
+    #[test]
+    fn tee_attestor_sends_envelope_with_bound_nonce() {
+        let calls = Arc::new(Mutex::new(None));
+        let reply = Ok([SAMPLE_TOKEN, b"\0"].concat());
+        let attestor = TeeAttestor::new("defakto-demo".into(), FakeTee { calls: calls.clone(), reply });
+
+        let ev = attestor.evidence(1792200000, "0011223344556677").unwrap();
+
+        let want = tee_envelope("defakto-demo", 1792200000, "0011223344556677", SAMPLE_TOKEN).unwrap();
+        assert_eq!(String::from_utf8(ev.payload).unwrap(), want);
+        assert_eq!(*calls.lock().unwrap(), Some((0x78a5dd58, 0x0DEFA470)));
+        assert_eq!(ev.method_type, "extension");
+        assert_eq!(ev.method_version, "1.0");
+        assert_eq!(attestor.label(), "ESP-TEE");
+    }
+
+    #[test]
+    fn tee_attestor_propagates_source_error() {
+        let err = AttestError("esp_tee_att_generate_token: 259".into());
+        let source = FakeTee { calls: Arc::default(), reply: Err(err.clone()) };
+        let attestor = TeeAttestor::new("defakto-demo".into(), source);
+        assert_eq!(attestor.evidence(1792200000, "0011223344556677"), Err(err));
     }
 }

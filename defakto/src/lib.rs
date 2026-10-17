@@ -9,6 +9,7 @@ pub mod http;
 pub mod jwt;
 pub mod oauth;
 pub mod serverless;
+pub mod tee_evidence;
 pub mod token_exchange;
 
 #[cfg(any(test, feature = "testing"))]
