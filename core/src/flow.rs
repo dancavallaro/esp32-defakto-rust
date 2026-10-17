@@ -126,10 +126,20 @@ pub fn exchange(
     id_token: &str,
     svid: &SvidToken,
 ) -> Result<DisplayClaims, FlowError> {
+    let token = exchange_token(http, cfg, id_token, svid)?;
+    Ok(DisplayClaims::from_obo_jwt(&token)?)
+}
+
+/// Like `exchange`, but returns the raw OBO token.
+pub fn exchange_token(
+    http: &mut impl HttpClient,
+    cfg: &Config,
+    id_token: &str,
+    svid: &SvidToken,
+) -> Result<String, FlowError> {
     let body = oauth::token_exchange_form(id_token, &cfg.subject_token_type, &svid.token);
     let resp = http.post(&cfg.token_url, oauth::FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
-    let token = oauth::parse_token_exchange(&resp)?;
-    Ok(DisplayClaims::from_obo_jwt(&token)?)
+    Ok(oauth::parse_token_exchange(&resp)?)
 }
 
 #[cfg(test)]

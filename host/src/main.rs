@@ -50,8 +50,40 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn login(_http: &mut UreqClient, _cfg: &Config) -> Result<()> {
-    anyhow::bail!("not implemented yet")
+/// Ctrl-C ends the process, which is all the cancellation the CLI needs.
+fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
+    anyhow::ensure!(
+        !cfg.auth0_domain.is_empty() && !cfg.auth0_client_id.is_empty(),
+        "set OBO_AUTH0_DOMAIN and OBO_AUTH0_CLIENT_ID"
+    );
+    let auth = flow::start_login(http, cfg)?;
+    let uri = auth.verification_uri_complete.as_deref().unwrap_or(&auth.verification_uri);
+    qr2term::print_qr(uri)?;
+    println!("Or visit {} and enter {}", auth.verification_uri, auth.user_code);
+    println!("Expires in {} s; waiting for sign-in…", auth.expires_in);
+
+    let id_token = flow::wait_for_id_token(http, cfg, &auth, &mut SystemClock, &|| false)?;
+    println!("Signed in. ID token claims:");
+    print_claims(&id_token)?;
+
+    let svid = fetch_svid(http, cfg)?;
+    println!("Got JWT-SVID for {}", svid.spiffe_id);
+    let obo = flow::exchange_token(http, cfg, &id_token, &svid)?;
+    println!("OBO token claims:");
+    print_claims(&obo)?;
+    println!("{:#?}", obo_core::jwt::DisplayClaims::from_obo_jwt(&obo)?);
+    Ok(())
+}
+
+struct SystemClock;
+
+impl flow::Clock for SystemClock {
+    fn unix_now(&self) -> i64 {
+        unix_now()
+    }
+    fn sleep(&mut self, d: std::time::Duration) {
+        std::thread::sleep(d);
+    }
 }
 
 fn config() -> Config {
