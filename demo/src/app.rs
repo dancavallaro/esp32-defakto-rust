@@ -23,7 +23,7 @@ pub struct Progress {
 pub enum Screen {
     Idle,
     Starting,
-    Qr { uri: String, verification_uri: String, user_code: String, expires_at: i64 },
+    Qr { uri: String, verification_uri: String, user_code: String, issued_at: i64, expires_at: i64 },
     Progress(Progress),
     Result(DisplayClaims),
     Error(String),
@@ -77,6 +77,7 @@ impl App {
                     uri: auth.verification_uri_complete.unwrap_or_else(|| auth.verification_uri.clone()),
                     verification_uri: auth.verification_uri,
                     user_code: auth.user_code,
+                    issued_at: now,
                     expires_at: now + auth.expires_in as i64,
                 },
                 Command::None,
@@ -151,6 +152,7 @@ mod tests {
                 uri: "https://t/activate?user_code=WDJB-MJHT".into(),
                 verification_uri: "https://t/activate".into(),
                 user_code: "WDJB-MJHT".into(),
+                issued_at: 1000,
                 expires_at: 1300,
             }
         );

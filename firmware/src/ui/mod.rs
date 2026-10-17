@@ -1,6 +1,7 @@
 //! Draws the demo's screens on the LCD, following the approved mockups.
 
 mod logo;
+mod qr;
 
 use std::f32::consts::TAU;
 use std::ops::Range;
@@ -8,12 +9,15 @@ use std::time::Instant;
 
 use anyhow::Result;
 use demo::app::{Screen, Status};
-use embedded_graphics::mono_font::iso_8859_1::{FONT_10X20, FONT_6X10};
+use demo::claims::DisplayClaims;
+use demo::text::{abbreviate, countdown, without_scheme, wrap};
+use embedded_graphics::mono_font::iso_8859_1::{FONT_10X20, FONT_6X10, FONT_8X13};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Circle, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
+use qrcodegen::QrCode;
 
 use crate::display::{Display, Strip, HEIGHT, WIDTH};
 
@@ -23,11 +27,17 @@ const FG: Rgb565 = rgb(0xe9e4f5);
 const PURPLE: Rgb565 = rgb(0xa07cff);
 const DIM: Rgb565 = rgb(0x7d7690);
 const OK: Rgb565 = rgb(0x5ee3a1);
+const WARN: Rgb565 = rgb(0xffcf5c);
+const TRACK: Rgb565 = rgb(0x2a2140);
 
 const BODY: MonoFont = FONT_6X10;
+const HEADING: MonoFont = FONT_8X13;
+const BIG: MonoFont = FONT_10X20;
 const WORDMARK: MonoFont = MonoFont { character_spacing: 2, ..FONT_10X20 };
 
 const CENTER_X: i32 = WIDTH as i32 / 2;
+const MARGIN: i32 = 10;
+const CONTENT_W: i32 = WIDTH as i32 - 2 * MARGIN;
 const BAR_H: u32 = 20;
 /// The panel's corners are rounded, so the bar's text keeps clear of them.
 const BAR_INSET: Point = Point::new(12, 6);
@@ -35,30 +45,53 @@ const LOGO_TOP: i32 = 64;
 const TAP_TOP: u16 = 280;
 const TAP_ROWS: Range<u16> = TAP_TOP..TAP_TOP + 10;
 const FOOTER_TOP: i32 = 302;
+const BAR_TRACK_W: u32 = 144;
 const PULSE_SECS: f32 = 1.6;
 
 pub struct Ui {
     display: Display,
     epoch: Instant,
+    qr: Option<(String, QrCode)>,
+    drawn_at: i64,
+}
+
+/// Everything a screen is drawn from.
+struct Frame<'a> {
+    screen: &'a Screen,
+    status: &'a Status,
+    now: i64,
+    pulse: f32,
+    qr: Option<&'a QrCode>,
 }
 
 impl Ui {
     pub fn new(display: Display) -> Self {
-        Self { display, epoch: Instant::now() }
+        Self { display, epoch: Instant::now(), qr: None, drawn_at: 0 }
     }
 
-    pub fn render(&mut self, screen: &Screen, status: &Status) -> Result<()> {
-        let pulse = self.pulse();
-        self.display.draw(0..HEIGHT, |s| draw(s, screen, status, pulse))
+    pub fn render(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
+        self.render_rows(0..HEIGHT, screen, status, now)
     }
 
-    /// Redraws only what moves on `screen`, cheaply enough to call every frame.
-    pub fn animate(&mut self, screen: &Screen, status: &Status) -> Result<()> {
-        if *screen == Screen::Idle {
-            let pulse = self.pulse();
-            self.display.draw(TAP_ROWS, |s| draw(s, screen, status, pulse))?;
+    /// Redraws what moves on `screen`: the idle prompt every frame, and the
+    /// countdowns once a second. Cheap enough to call every frame.
+    pub fn animate(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
+        match screen {
+            Screen::Idle => self.render_rows(TAP_ROWS, screen, status, now),
+            Screen::Qr { .. } | Screen::Result(_) if now != self.drawn_at => self.render(screen, status, now),
+            _ => Ok(()),
         }
-        Ok(())
+    }
+
+    fn render_rows(&mut self, rows: Range<u16>, screen: &Screen, status: &Status, now: i64) -> Result<()> {
+        if let Screen::Qr { uri, .. } = screen {
+            if self.qr.as_ref().is_none_or(|(cached, _)| cached != uri) {
+                self.qr = qr::encode(uri).map(|code| (uri.clone(), code));
+            }
+        }
+        let frame = Frame { screen, status, now, pulse: self.pulse(), qr: self.qr.as_ref().map(|(_, code)| code) };
+        self.drawn_at = now;
+        self.display.draw(rows, |s| draw(s, &frame))
     }
 
     /// Opacity of the tap prompt, easing between 1.0 and 0.35.
@@ -68,12 +101,18 @@ impl Ui {
     }
 }
 
-fn draw(s: &mut Strip, screen: &Screen, status: &Status, pulse: f32) {
+fn draw(s: &mut Strip, f: &Frame) {
     let _ = s.clear(BG);
-    status_bar(s, status);
-    match screen {
-        Screen::Idle => idle(s, status, pulse),
-        other => text(s, placeholder(other), Point::new(CENTER_X, 150), &BODY, FG, Alignment::Center),
+    status_bar(s, f.status);
+    match f.screen {
+        Screen::Idle => idle(s, f.status, f.pulse),
+        Screen::Starting => message(s, "Contacting the identity provider...", None),
+        Screen::Qr { verification_uri, user_code, issued_at, expires_at, .. } => {
+            sign_in(s, f.qr, verification_uri, user_code, (*expires_at - f.now, *expires_at - *issued_at))
+        }
+        Screen::Progress(_) => message(s, "Signing in...", None),
+        Screen::Result(claims) => result(s, claims, f.now),
+        Screen::Error(msg) => message(s, "Sign-in failed", Some(msg)),
     }
 }
 
@@ -101,15 +140,78 @@ fn idle(s: &mut Strip, status: &Status, pulse: f32) {
     text(s, &footer, Point::new(CENTER_X, FOOTER_TOP), &BODY, DIM, Alignment::Center);
 }
 
-fn placeholder(screen: &Screen) -> &'static str {
-    match screen {
-        Screen::Idle => "",
-        Screen::Starting => "Contacting the IdP...",
-        Screen::Qr { .. } => "QR code",
-        Screen::Progress(_) => "Signing in...",
-        Screen::Result(_) => "Signed in",
-        Screen::Error(_) => "Error",
+/// The QR code and its fallbacks. `left` and `lifetime` are in seconds.
+fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lifetime): (i64, i64)) {
+    let mut y = BAR_H as i32 + 8;
+    y = centered(s, "Scan to sign in", y, &HEADING, FG) + 6;
+    match qr {
+        Some(qr) => {
+            qr::draw(s, qr, Point::new(CENTER_X - qr::size(qr) / 2, y));
+            y += qr::size(qr) + 8;
+        }
+        None => y = centered(s, "(link too long for a QR code)", y, &BODY, WARN) + 8,
     }
+    y = centered(s, "OR VISIT", y, &BODY, DIM) + 2;
+    y = centered(s, without_scheme(uri), y, &BODY, FG) + 6;
+    y = centered(s, "CODE", y, &BODY, DIM) + 2;
+    y = centered(s, code, y, &BIG, PURPLE) + 4;
+
+    let track = Rectangle::new(Point::new(CENTER_X - BAR_TRACK_W as i32 / 2, y), Size::new(BAR_TRACK_W, 4));
+    fill(s, track, TRACK);
+    let filled = BAR_TRACK_W as i64 * left.clamp(0, lifetime) / lifetime.max(1);
+    fill(s, Rectangle::new(track.top_left, Size::new(filled as u32, 4)), PURPLE);
+    centered(s, &format!("{} \u{b7} tap to cancel", countdown(left)), y + 10, &BODY, DIM);
+}
+
+fn result(s: &mut Strip, c: &DisplayClaims, now: i64) {
+    let mut y = centered(s, &c.greeting, BAR_H as i32 + 10, &BIG, FG) + 10;
+    let txn = c.txn.as_deref().map(|t| abbreviate(t, columns(&BODY)));
+    let rows = [
+        ("ON BEHALF OF", Some(c.email.as_deref().unwrap_or(&c.user_sub))),
+        ("USER'S IdP", Some(without_scheme(&c.user_iss))),
+        ("ACTOR (THIS DEVICE)", Some(c.actor.as_str())),
+        ("TXN", txn.as_deref()),
+    ];
+    let expires = format!("in {}", countdown(c.exp - now));
+    for (label, value) in rows.into_iter().chain([("EXPIRES", Some(expires.as_str()))]) {
+        let Some(value) = value else { continue };
+        y = paragraph(s, label, y, DIM, Alignment::Left) + 1;
+        y = paragraph(s, value, y, FG, Alignment::Left) + 7;
+    }
+    centered(s, "tap to reset", FOOTER_TOP, &BODY, DIM);
+}
+
+/// A centered heading, plus an optional detail paragraph under it.
+fn message(s: &mut Strip, heading: &str, detail: Option<&str>) {
+    let color = if detail.is_some() { WARN } else { FG };
+    let y = centered(s, heading, 120, &HEADING, color) + 10;
+    if let Some(detail) = detail {
+        paragraph(s, detail, y, FG, Alignment::Left);
+        centered(s, "tap to start over", FOOTER_TOP, &BODY, DIM);
+    }
+}
+
+/// Draws `str` centered and wrapped to the content width, returning the y
+/// below it.
+fn centered(s: &mut Strip, str: &str, y: i32, font: &MonoFont, color: Rgb565) -> i32 {
+    lines(s, str, y, font, color, Alignment::Center)
+}
+
+fn paragraph(s: &mut Strip, str: &str, y: i32, color: Rgb565, alignment: Alignment) -> i32 {
+    lines(s, str, y, &BODY, color, alignment)
+}
+
+fn lines(s: &mut Strip, str: &str, mut y: i32, font: &MonoFont, color: Rgb565, alignment: Alignment) -> i32 {
+    let x = if alignment == Alignment::Center { CENTER_X } else { MARGIN };
+    for line in wrap(str, columns(font)) {
+        text(s, &line, Point::new(x, y), font, color, alignment);
+        y += font.character_size.height as i32 + 1;
+    }
+    y
+}
+
+fn columns(font: &MonoFont) -> usize {
+    (CONTENT_W / (font.character_size.width + font.character_spacing) as i32) as usize
 }
 
 fn text(s: &mut Strip, str: &str, at: Point, font: &MonoFont, color: Rgb565, alignment: Alignment) {

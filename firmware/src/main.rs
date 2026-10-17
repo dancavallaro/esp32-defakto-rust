@@ -139,14 +139,14 @@ impl Screens {
     fn show(&mut self, app: &App) {
         console::render(&app.screen, &app.status);
         #[cfg(not(feature = "xiao"))]
-        if let Err(e) = self.lcd.render(&app.screen, &app.status) {
+        if let Err(e) = self.lcd.render(&app.screen, &app.status, flow_now()) {
             warn!("drawing the screen failed: {e}");
         }
     }
 
     fn animate(&mut self, _app: &App) {
         #[cfg(not(feature = "xiao"))]
-        if let Err(e) = self.lcd.animate(&_app.screen, &_app.status) {
+        if let Err(e) = self.lcd.animate(&_app.screen, &_app.status, flow_now()) {
             warn!("drawing the screen failed: {e}");
         }
     }
