@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn attestor_changed_updates_status() {
-        let mut app = App::new(Status { wifi: true, svid: true, attestor: "NVS HMAC".into() });
+        let mut app = App::new(Status { wifi: true, svid: true, attestor: "eFuse HMAC".into() });
         assert_eq!(app.handle(Event::AttestorChanged { label: "eFuse HMAC".into(), svid: false }), Command::None);
         assert_eq!(app.status, Status { wifi: true, svid: false, attestor: "eFuse HMAC".into() });
         assert_eq!(app.screen, Screen::Idle);

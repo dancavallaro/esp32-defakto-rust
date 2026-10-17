@@ -1,8 +1,8 @@
 //! Builds attestors by kind. The worker only ever sees `dyn Attestor`, so
 //! backends switch at runtime.
 
-use anyhow::{bail, ensure, Context, Result};
-use defakto::attest::{AttestError, Attestor, HmacAttestor, HmacKey, SoftwareHmacKey, TeeAttestor, TeeTokenSource};
+use anyhow::{bail, ensure, Result};
+use defakto::attest::{AttestError, Attestor, HmacAttestor, HmacKey, TeeAttestor, TeeTokenSource};
 use defakto::tee_evidence::tee_public_key;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use esp_idf_svc::sys::{self, esp_err_t, EspError};
@@ -10,15 +10,12 @@ use log::info;
 
 use crate::tee::EspTee;
 
-/// Where `esp32-enroll generate` puts the secret (see its `nvs.csv`).
-const SECRET_NAMESPACE: &str = "spiffe";
-const SECRET_KEY: &str = "device_secret";
 /// Where the active backend is remembered across reboots.
 const CHOICE_NAMESPACE: &str = "demo";
 const CHOICE_KEY: &str = "attestor";
 
 /// The order a long press cycles through.
-const KINDS: [&str; 3] = ["nvs", "efuse", "tee"];
+const KINDS: [&str; 2] = ["efuse", "tee"];
 
 pub struct Attestors {
     device_id: &'static str,
@@ -34,7 +31,6 @@ impl Attestors {
     pub fn build(&self, kind: &str) -> Result<Box<dyn Attestor>> {
         let id = self.device_id.into();
         match kind {
-            "nvs" => Ok(Box::new(HmacAttestor::new(id, nvs_key(&self.nvs)?, "NVS HMAC"))),
             "efuse" => Ok(Box::new(HmacAttestor::new(id, EfuseHmacKey::new(self.efuse_key)?, "eFuse HMAC"))),
             "tee" => {
                 // Logged so the key can be enrolled with the webhook.
@@ -47,14 +43,15 @@ impl Attestors {
         }
     }
 
-    /// The saved choice, or `default` if there is none.
+    /// The saved choice, or `default` if there is none or it names a backend
+    /// this build no longer has (an older build saved `nvs`).
     pub fn saved(&self, default: &str) -> String {
         let read = || -> Result<Option<String>> {
             let store: EspNvs<NvsDefault> = EspNvs::new(self.nvs.clone(), CHOICE_NAMESPACE, false)?;
             let mut buf = [0u8; 16];
             Ok(store.get_str(CHOICE_KEY, &mut buf)?.map(str::to_owned))
         };
-        read().ok().flatten().unwrap_or_else(|| default.to_owned())
+        read().ok().flatten().filter(|k| KINDS.contains(&k.as_str())).unwrap_or_else(|| default.to_owned())
     }
 
     pub fn save(&self, kind: &str) -> Result<()> {
@@ -67,15 +64,6 @@ impl Attestors {
 pub fn next(kind: &str) -> &'static str {
     let i = KINDS.iter().position(|k| *k == kind).map_or(0, |i| i + 1);
     KINDS[i % KINDS.len()]
-}
-
-fn nvs_key(nvs: &EspDefaultNvsPartition) -> Result<SoftwareHmacKey> {
-    let store: EspNvs<NvsDefault> =
-        EspNvs::new(nvs.clone(), SECRET_NAMESPACE, false).context("NVS namespace `spiffe` missing; flash nvs.bin")?;
-    let mut buf = [0u8; 64];
-    let secret = store.get_blob(SECRET_KEY, &mut buf)?.context("no device_secret in NVS; flash nvs.bin")?;
-    ensure!(secret.len() == 32, "device_secret is {} bytes, want 32", secret.len());
-    Ok(SoftwareHmacKey(secret.to_vec()))
 }
 
 /// The device secret burned into an eFuse key block with purpose `HMAC_UP`.

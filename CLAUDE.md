@@ -28,7 +28,7 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
   strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens. `console.rs` also prints
   each screen to serial (the QR code as text), and is the only output with `--features xiao`. `touch` polls the
   AXS5106L, and `demo::gesture` turns its samples into taps and long presses. The BOOT button (GPIO9) also taps.
-  A long press on the idle screen cycles the attestor through `nvs`, `efuse` and `tee` and re-attests; the choice
+  A long press on the idle screen switches the attestor between `efuse` (the default) and `tee` and re-attests; the choice
   is kept in NVS (namespace `demo`, key `attestor`). The Waveshare board's secret is burned into eFuse key block 5
   (`HMAC_UP`, read-protected), which `efuse_hmac_key` in `cfg.toml` names. Under ESP-TEE the HMAC call is a
   TEE secure service; TEE secure storage stays in development mode, so it never claims that key block.
@@ -54,11 +54,9 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   "determine esp-idf version from …/.embuild/esp-idf/tools/cmake/version.cmake"; run the script.
   `esp-idf-sys` still installs its tools under `firmware/.embuild/espressif/`.
 - Firmware, from `firmware/`: `cargo run --release` builds, flashes and opens the serial monitor. Add
-  `--features xiao` for the Seeed XIAO ESP32C6 stand-in board, which needs its RF switch enabled. The device
-  secret lives in NVS: generate `nvs.bin` from `esp32-enroll`'s `nvs.csv` with
-  `.embuild/esp-idf/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py generate
-  nvs.csv nvs.bin 0x6000` (run it with the IDF venv's `python3`), then `espflash write-bin 0x9000 nvs.bin`. App
-  flashes leave it in place.
+  `--features xiao` for the Seeed XIAO ESP32C6 stand-in board, which needs its RF switch enabled. It has no
+  burned eFuse key, so it can only attest with the TEE. The firmware no longer reads a secret from NVS; software
+  HMAC remains only in `defakto` and the host CLI.
 - ESP-TEE: the firmware always builds with the TEE, which `default_attestor = "tee"` in `cfg.toml` (or a long
   press) attests with. The runner is `flash.sh`, because `espflash` can't parse the
   `tee_0` partition subtype. It writes the bootloader, `partitions.csv`, the TEE image and the app by offset. The
@@ -76,8 +74,8 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   envelope, which must match what the `esp32-attestor` verifier expects. `tee_envelope_golden` in
   `defakto/src/tee_evidence.rs` pins it with a token captured from the device (`defakto/testdata/`) and checks the
   TEE's signature. Don't recapture it to make the test pass.
-- **Attestation must stay swappable.** HMAC from software, HMAC from an eFuse key, and the ESP-TEE token must all
-  sit behind `Attestor`, so the device can switch between them at runtime. Don't add anything that only works for
+- **Attestation must stay swappable.** HMAC from an eFuse key and the ESP-TEE token must both sit behind
+  `Attestor`, so the device can switch between them at runtime, and the host keeps software HMAC. Don't add anything that only works for
   HMAC.
 - **Never commit secrets:** `host/.env`, `firmware/cfg.toml`, `nvs.csv`, `nvs.bin` and `secret.bin` are
   gitignored.

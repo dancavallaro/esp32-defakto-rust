@@ -22,7 +22,7 @@ pub struct Config {
     requested_token_type: &'static str,
     #[default("defakto-demo")]
     obo_audience: &'static str,
-    #[default("nvs")]
+    #[default("efuse")]
     default_attestor: &'static str,
     /// The eFuse key block (0 to 5) holding the device secret for `efuse`.
     #[default(5)]
