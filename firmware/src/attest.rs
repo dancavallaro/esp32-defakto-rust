@@ -18,7 +18,7 @@ const CHOICE_NAMESPACE: &str = "demo";
 const CHOICE_KEY: &str = "attestor";
 
 /// The order a long press cycles through.
-const KINDS: [&str; 2] = ["nvs", "efuse"];
+const KINDS: [&str; 3] = ["nvs", "efuse", "tee"];
 
 pub struct Attestors {
     device_id: &'static str,

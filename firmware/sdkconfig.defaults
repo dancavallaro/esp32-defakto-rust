@@ -10,8 +10,10 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_LWIP_SNTP_MAX_SERVERS=4
 
-# ESP-TEE runs attestation; its secure storage stays in development mode, so no eFuse keys.
+# ESP-TEE runs attestation. Its secure storage stays in development mode, so it uses no eFuse key: release
+# mode must never take block 5, which holds the device secret for eFuse HMAC.
 CONFIG_SECURE_ENABLE_TEE=y
+CONFIG_SECURE_TEE_SEC_STG_MODE_DEVELOPMENT=y
 CONFIG_MBEDTLS_TEE_SEC_STG_ECDSA_SIGN=n
 # Only satisfies the IDF build: the flashed table is partitions.csv (see flash.sh).
 CONFIG_PARTITION_TABLE_SINGLE_APP_TEE=y
