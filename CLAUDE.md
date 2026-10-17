@@ -71,7 +71,10 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 
 - **The HMAC evidence must stay byte-identical to `telemetry/pkg/espattest`.** That package is what the
   `esp32-attestor` webhook verifies. The golden test in `defakto/src/attest.rs` comes from `esp32-enroll golden`.
-  If it fails, the format has drifted; don't change the expected value to make it pass.
+  If it fails, the format has drifted; don't change the expected value to make it pass. The same holds for the TEE
+  envelope, which must match what the `esp32-attestor` verifier expects. `tee_envelope_golden` in
+  `defakto/src/tee_evidence.rs` pins it with a token captured from the device (`defakto/testdata/`) and checks the
+  TEE's signature. Don't recapture it to make the test pass.
 - **Attestation must stay swappable.** HMAC from software, HMAC from an eFuse key, and the ESP-TEE token must all
   sit behind `Attestor`, so the device can switch between them at runtime. Don't add anything that only works for
   HMAC.

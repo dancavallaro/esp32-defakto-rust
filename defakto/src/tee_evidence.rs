@@ -73,6 +73,49 @@ mod tests {
         assert!(tee_envelope("d", 1, "00", b"{\"a\":\"\xc3\xa9\"}").is_err());
     }
 
+    /// Captured from the XIAO's TEE with `TeeAttestor::evidence(1792200000, "0011223344556677")`; the
+    /// `esp32-attestor` verifier's tests use the same file. If this fails, the format has drifted; don't
+    /// recapture it to make the test pass.
+    const GOLDEN: &str = include_str!("../testdata/tee_envelope_golden.json");
+
+    #[derive(serde::Deserialize)]
+    struct RawToken<'a> {
+        #[serde(borrow)]
+        header: &'a serde_json::value::RawValue,
+        #[serde(borrow)]
+        eat: &'a serde_json::value::RawValue,
+        #[serde(borrow)]
+        public_key: &'a serde_json::value::RawValue,
+    }
+
+    #[test]
+    fn tee_envelope_golden() {
+        let (_, token) = GOLDEN.split_once(r#","token":"#).unwrap();
+        let token = token.strip_suffix('}').unwrap();
+        let rebuilt = tee_envelope("defakto-demo", 1792200000, "0011223344556677", token.as_bytes()).unwrap();
+        assert_eq!(rebuilt, GOLDEN);
+
+        let parsed: serde_json::Value = serde_json::from_str(token).unwrap();
+        // The TEE prints both as signed 32-bit integers.
+        assert_eq!(parsed["eat"]["nonce"].as_i64().unwrap() as u32, 0x78a5dd58);
+        assert_eq!(parsed["eat"]["client_id"].as_i64().unwrap() as u32, TEE_CLIENT_ID);
+
+        // The signature covers the exact bytes of these three objects, in this order.
+        let raw: RawToken = serde_json::from_str(token).unwrap();
+        let signed = [raw.header.get(), raw.eat.get(), raw.public_key.get()].concat();
+        let key = hex::decode(parsed["public_key"]["compressed"].as_str().unwrap()).unwrap();
+        let r = hex::decode(parsed["sign"]["r"].as_str().unwrap()).unwrap();
+        let s = hex::decode(parsed["sign"]["s"].as_str().unwrap()).unwrap();
+        let key = p256::ecdsa::VerifyingKey::from_sec1_bytes(&key).unwrap();
+        let sig = p256::ecdsa::Signature::from_scalars(
+            <[u8; 32]>::try_from(r).unwrap(),
+            <[u8; 32]>::try_from(s).unwrap(),
+        )
+        .unwrap();
+        use p256::ecdsa::signature::hazmat::PrehashVerifier;
+        key.verify_prehash(&Sha256::digest(signed.as_bytes()), &sig).unwrap();
+    }
+
     #[test]
     fn public_key_from_sample_token() {
         let token = include_bytes!("../testdata/tee_token_sample.json");
