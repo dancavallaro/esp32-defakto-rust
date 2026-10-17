@@ -1,0 +1,38 @@
+#!/bin/sh
+# Sets up the ESP-IDF tree the firmware builds against (IDF_PATH in .cargo/config.toml):
+# v5.5.5 plus patches/esp-tee-rom-read.patch. Without the patch, TEE flash reads return
+# garbage once the app's flash driver has run, and the TEE loses its attestation key on
+# every boot. The tree sits outside esp-idf-sys's managed checkout because esp-idf-sys
+# deletes and re-clones that checkout whenever it has local changes.
+set -eu
+
+cd "$(dirname "$0")"
+version=v5.5.5
+tree=.embuild/esp-idf
+managed=.embuild/espressif/esp-idf/$version
+patch="$PWD/patches/esp-tee-rom-read.patch"
+
+if [ ! -d "$tree" ]; then
+    if [ -d "$managed/.git" ]; then
+        echo "copying ESP-IDF $version from $managed"
+        cp -cR "$managed" "$tree" 2>/dev/null || cp -R "$managed" "$tree"
+    else
+        git clone --depth 1 --shallow-submodules --recursive --branch "$version" \
+            https://github.com/espressif/esp-idf.git "$tree"
+    fi
+fi
+
+if git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
+    echo "ESP-IDF patch already applied"
+    exit 0
+fi
+
+if ! git -C "$tree" apply "$patch"; then
+    echo "patches/esp-tee-rom-read.patch does not apply to $tree" >&2
+    exit 1
+fi
+echo "ESP-IDF patch applied"
+
+# esp-idf-sys doesn't watch ESP-IDF's sources, so force its libraries to rebuild.
+cargo clean --release -p esp-idf-sys
+cargo clean -p esp-idf-sys

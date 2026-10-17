@@ -11,5 +11,6 @@ build-std = ["std", "panic_abort"]
 
 [env]
 MCU = "esp32c6"
-ESP_IDF_VERSION = "v5.5.5"
+# Set up by ./patch-idf.sh: ESP-IDF v5.5.5 with the TEE flash-read fix.
+IDF_PATH = { value = ".embuild/esp-idf", relative = true }
 ESP_IDF_TOOLS_INSTALL_DIR = "workspace"
