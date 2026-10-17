@@ -72,13 +72,13 @@ impl HmacKey for SoftwareHmacKey {
 mod tests {
     use super::*;
 
-    // From `esp32-enroll golden c6-demo AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8= 1792200000 0011223344556677`.
-    const GOLDEN_EVIDENCE: &str = r#"{"device_id":"c6-demo","ts":1792200000,"nonce":"0011223344556677","mac":"1f5172bf354800a61aacb56fb0e389de1d3db309fb469d350453b2f96e4993f6"}"#;
+    // From `esp32-enroll golden defakto-demo AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8= 1792200000 0011223344556677`.
+    const GOLDEN_EVIDENCE: &str = r#"{"device_id":"defakto-demo","ts":1792200000,"nonce":"0011223344556677","mac":"b8eead1bcca6bc6368900c976dab032c0a7f8b8ac1427667e337904cf7a6c033"}"#;
 
     #[test]
     fn hmac_attestor_matches_golden() {
         let attestor = HmacAttestor::new(
-            "c6-demo".into(),
+            "defakto-demo".into(),
             SoftwareHmacKey((0u8..32).collect()),
             "software HMAC",
         );

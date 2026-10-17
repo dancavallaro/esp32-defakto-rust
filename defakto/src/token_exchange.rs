@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn exchange_posts_form() {
         let mut http = FakeHttp::default().reply(200, r#"{"access_token":"o.b.o"}"#);
-        let svid = SvidToken { spiffe_id: "spiffe://p/iot/c6-demo".into(), token: "svid.jwt.sig".into() };
+        let svid = SvidToken { spiffe_id: "spiffe://p/iot/defakto-demo".into(), token: "svid.jwt.sig".into() };
 
         let token = exchange(&mut http, "https://tds/oauth/token", "id.tok.en", TOKEN_TYPE_ID_TOKEN, &svid);
 

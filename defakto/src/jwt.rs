@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn decodes_payload() {
-        let payload = json!({"sub": "spiffe://p/iot/c6-demo", "exp": 1});
+        let payload = json!({"sub": "spiffe://p/iot/defakto-demo", "exp": 1});
         assert_eq!(decode_claims(&make_jwt(&payload)), Ok(payload));
     }
 

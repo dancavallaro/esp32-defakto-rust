@@ -46,8 +46,8 @@ mod tests {
     #[test]
     fn signing_string_matches_espattest() {
         assert_eq!(
-            signing_string("c6-demo", 1792200000, "0011223344556677"),
-            "c6-demo|1792200000|0011223344556677"
+            signing_string("defakto-demo", 1792200000, "0011223344556677"),
+            "defakto-demo|1792200000|0011223344556677"
         );
     }
 
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn device_id_rules() {
-        assert!(validate_device_id("c6-demo").is_ok());
+        assert!(validate_device_id("defakto-demo").is_ok());
         assert!(validate_device_id("a.b_c-1").is_ok());
         for bad in ["", ".", "..", "C6", "a|b", &"a".repeat(65)] {
             assert!(validate_device_id(bad).is_err(), "{bad:?} should be rejected");

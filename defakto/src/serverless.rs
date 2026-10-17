@@ -188,19 +188,19 @@ mod tests {
     const NOW: i64 = 1_792_200_000;
 
     fn attestor() -> HmacAttestor<SoftwareHmacKey> {
-        HmacAttestor::new("c6-demo".into(), SoftwareHmacKey((0u8..32).collect()), "software HMAC")
+        HmacAttestor::new("defakto-demo".into(), SoftwareHmacKey((0u8..32).collect()), "software HMAC")
     }
 
     #[test]
     fn fetch_posts_grpc_web() {
-        let mut body = grpcweb::frame(&encode_response(&[("spiffe://p/iot/c6-demo", "jwt")]));
+        let mut body = grpcweb::frame(&encode_response(&[("spiffe://p/iot/defakto-demo", "jwt")]));
         body.extend([0x80, 0, 0, 0, 15]);
         body.extend(b"grpc-status:0\r\n");
         let mut http = FakeHttp::default().reply(200, body);
 
         let svid = fetch_jwt_svid(&mut http, "https://tds", "https://issuer.example", &attestor(), NOW, "0011223344556677");
 
-        assert_eq!(svid, Ok(SvidToken { spiffe_id: "spiffe://p/iot/c6-demo".into(), token: "jwt".into() }));
+        assert_eq!(svid, Ok(SvidToken { spiffe_id: "spiffe://p/iot/defakto-demo".into(), token: "jwt".into() }));
         let req = &http.requests[0];
         assert_eq!(req.url, format!("https://tds{FETCH_JWT_SVID_PATH}"));
         assert_eq!(req.content_type, grpcweb::CONTENT_TYPE);

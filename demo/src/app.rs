@@ -124,7 +124,7 @@ mod tests {
             email: Some("alice@example.com".into()),
             user_sub: "u".into(),
             user_iss: "i".into(),
-            actor: "spiffe://p/iot/c6-demo".into(),
+            actor: "spiffe://p/iot/defakto-demo".into(),
             txn: None,
             exp: 0,
         }

@@ -252,7 +252,7 @@ mod tests {
     fn fetch_svid_uses_config() {
         let mut http = FakeHttp::default().fail("timeout");
         let attestor = defakto::attest::HmacAttestor::new(
-            "c6-demo".into(),
+            "defakto-demo".into(),
             defakto::attest::SoftwareHmacKey(vec![0; 32]),
             "software HMAC",
         );
@@ -265,7 +265,7 @@ mod tests {
     fn exchange_posts_form_and_decodes() {
         let obo = make_jwt(&alice_obo());
         let mut http = FakeHttp::default().reply(200, format!(r#"{{"access_token":"{obo}"}}"#));
-        let svid = SvidToken { spiffe_id: "spiffe://p/iot/c6-demo".into(), token: "svid.jwt.sig".into() };
+        let svid = SvidToken { spiffe_id: "spiffe://p/iot/defakto-demo".into(), token: "svid.jwt.sig".into() };
 
         let claims = exchange(&mut http, &cfg(), "id.tok.en", &svid).unwrap();
 

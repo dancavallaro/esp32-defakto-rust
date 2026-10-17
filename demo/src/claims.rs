@@ -58,7 +58,7 @@ pub(crate) mod fixtures {
 
     pub fn alice_obo() -> Value {
         json!({
-            "sub": "spiffe://prod.cavallaro.local/iot/c6-demo",
+            "sub": "spiffe://prod.cavallaro.local/iot/defakto-demo",
             "exp": 1792203600,
             "txn": "7f3a",
             "email": "alice@example.com",
@@ -66,7 +66,7 @@ pub(crate) mod fixtures {
             "obo": {
                 "sub": "google-oauth2|123",
                 "iss": "https://t.us.auth0.com/",
-                "act": {"sub": "spiffe://prod.cavallaro.local/iot/c6-demo"}
+                "act": {"sub": "spiffe://prod.cavallaro.local/iot/defakto-demo"}
             }
         })
     }
@@ -89,7 +89,7 @@ mod tests {
                 email: Some("alice@example.com".into()),
                 user_sub: "google-oauth2|123".into(),
                 user_iss: "https://t.us.auth0.com/".into(),
-                actor: "spiffe://prod.cavallaro.local/iot/c6-demo".into(),
+                actor: "spiffe://prod.cavallaro.local/iot/defakto-demo".into(),
                 txn: Some("7f3a".into()),
                 exp: 1792203600,
             }

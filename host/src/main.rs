@@ -104,7 +104,7 @@ fn var_or(name: &str, default: &str) -> String {
 
 fn fetch_svid(http: &mut UreqClient, cfg: &Config) -> Result<SvidToken> {
     anyhow::ensure!(!cfg.svid_audience.is_empty(), "set DEMO_SVID_AUDIENCE");
-    let device_id = var_or("DEMO_DEVICE_ID", "c6-demo");
+    let device_id = var_or("DEMO_DEVICE_ID", "defakto-demo");
     validate_device_id(&device_id).map_err(anyhow::Error::msg)?;
     let secret = STANDARD
         .decode(env::var("DEMO_SECRET_B64").context("set DEMO_SECRET_B64")?)

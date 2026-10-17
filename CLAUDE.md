@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A tech demo for the Waveshare ESP32-C6-Touch-LCD-1.47, written in Rust. The device shows a Defakto logo; tapping it
 shows a QR code for an Auth0 device-flow login. The device then attests to Defakto's serverless API for a JWT-SVID
-(`spiffe://prod.cavallaro.local/iot/c6-demo`), exchanges the user's ID token for an OBO token (RFC 8693), and shows
+(`spiffe://prod.cavallaro.local/iot/defakto-demo`), exchanges the user's ID token for an OBO token (RFC 8693), and shows
 its claims on screen.
 
 ## Layout
