@@ -7,6 +7,8 @@ mod display;
 mod http;
 mod net;
 #[cfg(not(feature = "xiao"))]
+mod touch;
+#[cfg(not(feature = "xiao"))]
 mod ui;
 mod worker;
 
@@ -16,6 +18,7 @@ use std::time::Duration;
 use anyhow::Result;
 use demo::app::{App, Event, Status};
 use demo::flow;
+use demo::gesture::Gesture;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
@@ -80,11 +83,28 @@ fn main() -> Result<()> {
     let (events_tx, events) = mpsc::channel();
     let worker = Worker::spawn(cfg, attestor, events_tx)?;
     let mut button = button::Button::new(peripherals.pins.gpio9)?;
+    #[cfg(not(feature = "xiao"))]
+    let mut touch = touch::Touch::new(
+        peripherals.i2c0,
+        peripherals.pins.gpio18,
+        peripherals.pins.gpio19,
+        peripherals.pins.gpio20,
+    )?;
 
     loop {
         let (screen, status) = (app.screen.clone(), app.status.clone());
-        if button.pressed() {
+        #[cfg(not(feature = "xiao"))]
+        let gesture = touch.poll().unwrap_or_else(|e| {
+            warn!("reading touch failed: {e}");
+            None
+        });
+        #[cfg(feature = "xiao")]
+        let gesture = None;
+        if button.pressed() || gesture == Some(Gesture::Tap) {
             worker.send(app.handle(Event::Tap));
+        }
+        if gesture == Some(Gesture::LongPress) {
+            info!("long press");
         }
         while let Ok(ev) = events.try_recv() {
             worker.send(app.handle(ev));

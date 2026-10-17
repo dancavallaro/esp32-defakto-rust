@@ -4,4 +4,5 @@
 pub mod app;
 pub mod claims;
 pub mod flow;
+pub mod gesture;
 pub mod login;
