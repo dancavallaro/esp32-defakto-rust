@@ -31,6 +31,9 @@ pub struct Config {
     pub login_token_url: String,
     pub login_client_id: String,
     pub subject_token_type: String,
+    pub requested_token_type: String,
+    /// Who the OBO token is for; nothing downstream consumes it in this demo.
+    pub obo_audience: String,
 }
 
 pub trait Clock {
@@ -126,7 +129,13 @@ pub fn exchange_token(
     id_token: &str,
     svid: &SvidToken,
 ) -> Result<String, FlowError> {
-    Ok(token_exchange::exchange(http, &cfg.token_url, id_token, &cfg.subject_token_type, svid)?)
+    let req = token_exchange::Request {
+        subject_token: id_token,
+        subject_token_type: &cfg.subject_token_type,
+        requested_token_type: &cfg.requested_token_type,
+        audience: &cfg.obo_audience,
+    };
+    Ok(token_exchange::exchange(http, &cfg.token_url, &req, svid)?)
 }
 
 #[cfg(test)]
@@ -160,6 +169,8 @@ mod tests {
             login_token_url: "https://idp.example/token".into(),
             login_client_id: "cid".into(),
             subject_token_type: token_exchange::TOKEN_TYPE_ID_TOKEN.into(),
+            requested_token_type: token_exchange::TOKEN_TYPE_JWT_SVID_OBO.into(),
+            obo_audience: "https://api.example".into(),
         }
     }
 
@@ -275,7 +286,16 @@ mod tests {
         assert_eq!(http.requests[0].url, TOKEN_URL);
         assert_eq!(
             http.requests[0].body,
-            token_exchange::request_form("id.tok.en", token_exchange::TOKEN_TYPE_ID_TOKEN, "svid.jwt.sig").into_bytes()
+            token_exchange::request_form(
+                &token_exchange::Request {
+                    subject_token: "id.tok.en",
+                    subject_token_type: token_exchange::TOKEN_TYPE_ID_TOKEN,
+                    requested_token_type: token_exchange::TOKEN_TYPE_JWT_SVID_OBO,
+                    audience: "https://api.example",
+                },
+                "svid.jwt.sig"
+            )
+            .into_bytes()
         );
     }
 }

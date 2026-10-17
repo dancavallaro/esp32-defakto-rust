@@ -35,7 +35,7 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 - Host CLI: `cargo run -p demo-host -- svid` and `cargo run -p demo-host -- login`. Settings come from `DEMO_*` env
   vars, loaded from `host/.env`. The variables are `DEMO_SECRET_B64`, `DEMO_SVID_AUDIENCE`, `DEMO_LOGIN_DEVICE_URL`,
   `DEMO_LOGIN_TOKEN_URL`, `DEMO_LOGIN_CLIENT_ID` (the two URLs come from the IdP's OIDC discovery document), and
-  optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_SERVERLESS_URL` and
+  optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_REQUESTED_TOKEN_TYPE`, `DEMO_OBO_AUDIENCE`, `DEMO_SERVERLESS_URL` and
   `DEMO_TOKEN_URL`.
 - Toolchain: the rustup proxies in `~/.cargo/bin` must come before Homebrew's `cargo` on PATH. Homebrew's
   stable-only Rust ignores `rust-toolchain.toml`, so it can't build the firmware. On its first build, the firmware

@@ -15,7 +15,7 @@ use defakto::attest::{HmacAttestor, SoftwareHmacKey};
 use defakto::evidence::{new_nonce, validate_device_id};
 use defakto::jwt::decode_claims;
 use defakto::serverless::SvidToken;
-use defakto::token_exchange::TOKEN_TYPE_ID_TOKEN;
+use defakto::token_exchange::{TOKEN_TYPE_ID_TOKEN, TOKEN_TYPE_JWT_SVID_OBO};
 use demo::claims::DisplayClaims;
 use demo::flow::{self, Config};
 
@@ -96,6 +96,8 @@ fn config() -> Config {
         login_token_url: var_or("DEMO_LOGIN_TOKEN_URL", ""),
         login_client_id: var_or("DEMO_LOGIN_CLIENT_ID", ""),
         subject_token_type: var_or("DEMO_SUBJECT_TOKEN_TYPE", TOKEN_TYPE_ID_TOKEN),
+        requested_token_type: var_or("DEMO_REQUESTED_TOKEN_TYPE", TOKEN_TYPE_JWT_SVID_OBO),
+        obo_audience: var_or("DEMO_OBO_AUDIENCE", "defakto-demo"),
     }
 }
 
