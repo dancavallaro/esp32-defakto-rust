@@ -114,6 +114,7 @@ fn login(cfg: &Config, attestor: &dyn Attestor, events: &Sender<Event>, cancel: 
     let _ = events.send(Event::SvidReady);
     let claims = flow::exchange(http, cfg, &id_token, &svid)?;
     let _ = events.send(Event::Exchanged(claims));
+    info!("free heap {} B after sign-in, low-water {} B", crate::free_heap(), crate::min_free_heap());
     Ok(())
 }
 
