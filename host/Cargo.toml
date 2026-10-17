@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+defakto = { path = "../defakto" }
 demo = { path = "../demo" }
 anyhow = "1"
 base64 = "0.22"

@@ -204,7 +204,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "demo"
+name = "defakto"
 version = "0.1.0"
 dependencies = [
  "base64",
@@ -219,12 +219,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+ "defakto",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "demo-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "defakto",
  "demo",
  "dotenvy",
  "getrandom",

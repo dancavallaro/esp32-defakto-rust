@@ -1,8 +1,8 @@
 //! The demo's screens and how taps and flow events move between them. The
 //! firmware renders `App::screen` and carries out the returned `Command`s.
 
-use crate::jwt::DisplayClaims;
-use crate::oauth::DeviceAuthorization;
+use crate::claims::DisplayClaims;
+use crate::login::DeviceAuthorization;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Step {

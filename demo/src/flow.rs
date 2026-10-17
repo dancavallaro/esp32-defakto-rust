@@ -3,19 +3,20 @@
 
 use std::time::Duration;
 
-use crate::attest::{AttestError, Attestor};
-use crate::grpcweb::{self, GrpcError};
-use crate::http::{HttpClient, HttpError};
-use crate::jwt::{DisplayClaims, JwtError};
-use crate::oauth::{self, DeviceAuthorization, OAuthError, PollOutcome};
-use crate::serverless::{self, ServerlessError, SvidToken};
+use defakto::attest::Attestor;
+use defakto::http::{HttpClient, HttpError};
+use defakto::jwt::JwtError;
+use defakto::oauth::{OAuthError, FORM_CONTENT_TYPE};
+use defakto::serverless::{self, SvidToken};
+use defakto::token_exchange;
+
+use crate::claims::DisplayClaims;
+use crate::login::{self, DeviceAuthorization, PollOutcome};
 
 pub const SERVERLESS_URL: &str = "https://defakto.o.cavnet.cloud";
 pub const TOKEN_URL: &str = "https://defakto.o.cavnet.cloud/oauth/token";
 pub const LOGIN_SCOPE: &str = "openid profile email";
 
-/// Evidence timestamps before this (2024-01-01) mean the clock was never set.
-const EARLIEST_VALID_TIME: i64 = 1_704_067_200;
 const DEFAULT_POLL_INTERVAL: u64 = 5;
 const SLOW_DOWN_STEP: Duration = Duration::from_secs(5);
 
@@ -37,16 +38,10 @@ pub trait Clock {
 /// `Display` is what the error screen shows, so messages stay short.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FlowError {
-    #[error("clock not set")]
-    ClockNotSet,
+    #[error(transparent)]
+    Defakto(#[from] defakto::Error),
     #[error("network: {0}")]
     Http(#[from] HttpError),
-    #[error(transparent)]
-    Grpc(#[from] GrpcError),
-    #[error(transparent)]
-    Attest(#[from] AttestError),
-    #[error(transparent)]
-    Serverless(#[from] ServerlessError),
     #[error(transparent)]
     OAuth(#[from] OAuthError),
     #[error(transparent)]
@@ -66,21 +61,14 @@ pub fn fetch_svid(
     now: i64,
     nonce: &str,
 ) -> Result<SvidToken, FlowError> {
-    if now < EARLIEST_VALID_TIME {
-        return Err(FlowError::ClockNotSet);
-    }
-    let evidence = attestor.evidence(now, nonce)?;
-    let body = serverless::fetch_jwt_svid_body(&evidence, &cfg.svid_audience);
-    let url = format!("{}{}", cfg.serverless_url, serverless::FETCH_JWT_SVID_PATH);
-    let resp = http.post(&url, grpcweb::CONTENT_TYPE, &body, grpcweb::READ_HEADERS)?;
-    Ok(serverless::parse_fetch_jwt_svid(&grpcweb::parse_response(&resp)?)?)
+    Ok(serverless::fetch_jwt_svid(http, &cfg.serverless_url, &cfg.svid_audience, attestor, now, nonce)?)
 }
 
 pub fn start_login(http: &mut impl HttpClient, cfg: &Config) -> Result<DeviceAuthorization, FlowError> {
     let url = format!("https://{}/oauth/device/code", cfg.auth0_domain);
-    let body = oauth::device_code_form(&cfg.auth0_client_id, LOGIN_SCOPE);
-    let resp = http.post(&url, oauth::FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
-    Ok(oauth::parse_device_authorization(&resp)?)
+    let body = login::device_code_form(&cfg.auth0_client_id, LOGIN_SCOPE);
+    let resp = http.post(&url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+    Ok(login::parse_device_authorization(&resp)?)
 }
 
 /// Polls until the user finishes signing in, the code expires, or `cancelled`
@@ -93,7 +81,7 @@ pub fn wait_for_id_token(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<String, FlowError> {
     let url = format!("https://{}/oauth/token", cfg.auth0_domain);
-    let body = oauth::device_token_form(&cfg.auth0_client_id, &auth.device_code);
+    let body = login::device_token_form(&cfg.auth0_client_id, &auth.device_code);
     let deadline = clock.unix_now() + auth.expires_in as i64;
     let mut interval = Duration::from_secs(auth.interval.unwrap_or(DEFAULT_POLL_INTERVAL));
 
@@ -109,8 +97,8 @@ pub fn wait_for_id_token(
         if cancelled() {
             return Err(FlowError::Cancelled);
         }
-        let resp = http.post(&url, oauth::FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
-        match oauth::parse_poll(&resp)? {
+        let resp = http.post(&url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+        match login::parse_poll(&resp)? {
             PollOutcome::Pending => {}
             PollOutcome::SlowDown => interval += SLOW_DOWN_STEP,
             PollOutcome::IdToken(token) => return Ok(token),
@@ -137,56 +125,15 @@ pub fn exchange_token(
     id_token: &str,
     svid: &SvidToken,
 ) -> Result<String, FlowError> {
-    let body = oauth::token_exchange_form(id_token, &cfg.subject_token_type, &svid.token);
-    let resp = http.post(&cfg.token_url, oauth::FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
-    Ok(oauth::parse_token_exchange(&resp)?)
+    Ok(token_exchange::exchange(http, &cfg.token_url, id_token, &cfg.subject_token_type, svid)?)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::collections::VecDeque;
-    use std::rc::Rc;
+    use defakto::testing::{make_jwt, FakeHttp};
 
     use super::*;
-    use crate::attest::{HmacAttestor, SoftwareHmacKey};
-    use crate::http::HttpResponse;
-    use crate::jwt::fixtures::{alice_obo, make_jwt};
-
-    #[derive(Debug, Clone, PartialEq)]
-    struct Request {
-        url: String,
-        content_type: String,
-        body: Vec<u8>,
-        read_headers: Vec<String>,
-    }
-
-    #[derive(Default)]
-    struct FakeHttp {
-        replies: VecDeque<Result<HttpResponse, HttpError>>,
-        requests: Vec<Request>,
-        posts: Rc<Cell<usize>>,
-    }
-
-    impl FakeHttp {
-        fn reply(mut self, status: u16, body: impl Into<Vec<u8>>) -> Self {
-            self.replies.push_back(Ok(HttpResponse { status, headers: vec![], body: body.into() }));
-            self
-        }
-    }
-
-    impl HttpClient for FakeHttp {
-        fn post(&mut self, url: &str, content_type: &str, body: &[u8], read_headers: &[&str]) -> Result<HttpResponse, HttpError> {
-            self.posts.set(self.posts.get() + 1);
-            self.requests.push(Request {
-                url: url.into(),
-                content_type: content_type.into(),
-                body: body.to_vec(),
-                read_headers: read_headers.iter().map(|h| h.to_string()).collect(),
-            });
-            self.replies.pop_front().expect("unexpected request")
-        }
-    }
+    use crate::claims::fixtures::alice_obo;
 
     struct FakeClock {
         now: i64,
@@ -210,12 +157,8 @@ mod tests {
             svid_audience: "https://issuer.example".into(),
             auth0_domain: "t.us.auth0.com".into(),
             auth0_client_id: "cid".into(),
-            subject_token_type: oauth::TOKEN_TYPE_ID_TOKEN.into(),
+            subject_token_type: token_exchange::TOKEN_TYPE_ID_TOKEN.into(),
         }
-    }
-
-    fn attestor() -> HmacAttestor<SoftwareHmacKey> {
-        HmacAttestor::new("c6-demo".into(), SoftwareHmacKey((0u8..32).collect()), "software HMAC")
     }
 
     fn auth(expires_in: u64, interval: Option<u64>) -> DeviceAuthorization {
@@ -236,37 +179,12 @@ mod tests {
     const NOW: i64 = 1_792_200_000;
 
     #[test]
-    fn fetch_svid_posts_grpc_web() {
-        let mut body = grpcweb::frame(&serverless::encode_response(&[("spiffe://p/iot/c6-demo", "jwt")]));
-        body.extend([0x80, 0, 0, 0, 15]);
-        body.extend(b"grpc-status:0\r\n");
-        let mut http = FakeHttp::default().reply(200, body);
-
-        let svid = fetch_svid(&mut http, &cfg(), &attestor(), NOW, "0011223344556677").unwrap();
-
-        assert_eq!(svid, SvidToken { spiffe_id: "spiffe://p/iot/c6-demo".into(), token: "jwt".into() });
-        let req = &http.requests[0];
-        assert_eq!(req.url, format!("{SERVERLESS_URL}{}", serverless::FETCH_JWT_SVID_PATH));
-        assert_eq!(req.content_type, grpcweb::CONTENT_TYPE);
-        assert_eq!(req.read_headers, grpcweb::READ_HEADERS);
-        let ev = attestor().evidence(NOW, "0011223344556677").unwrap();
-        assert_eq!(req.body, serverless::fetch_jwt_svid_body(&ev, "https://issuer.example"));
-    }
-
-    #[test]
-    fn fetch_svid_rejects_unset_clock() {
-        let mut http = FakeHttp::default();
-        assert_eq!(fetch_svid(&mut http, &cfg(), &attestor(), 1_000, "00"), Err(FlowError::ClockNotSet));
-        assert!(http.requests.is_empty());
-    }
-
-    #[test]
     fn start_login_posts_device_code() {
         let body = r#"{"device_code":"dc","user_code":"U","verification_uri":"https://t/a","expires_in":900}"#;
         let mut http = FakeHttp::default().reply(200, body);
         assert_eq!(start_login(&mut http, &cfg()).unwrap().device_code, "dc");
         assert_eq!(http.requests[0].url, "https://t.us.auth0.com/oauth/device/code");
-        assert_eq!(http.requests[0].body, oauth::device_code_form("cid", LOGIN_SCOPE).into_bytes());
+        assert_eq!(http.requests[0].body, login::device_code_form("cid", LOGIN_SCOPE).into_bytes());
     }
 
     #[test]
@@ -284,7 +202,7 @@ mod tests {
         assert_eq!(secs, [5, 5, 10]);
         for req in &http.requests {
             assert_eq!(req.url, "https://t.us.auth0.com/oauth/token");
-            assert_eq!(req.body, oauth::device_token_form("cid", "dc").into_bytes());
+            assert_eq!(req.body, login::device_token_form("cid", "dc").into_bytes());
         }
     }
 
@@ -324,10 +242,22 @@ mod tests {
 
     #[test]
     fn http_error_maps_to_flow_error() {
-        let mut http = FakeHttp::default();
-        http.replies.push_back(Err(HttpError("timeout".into())));
+        let mut http = FakeHttp::default().fail("timeout");
         let err = start_login(&mut http, &cfg()).unwrap_err();
         assert_eq!(err, FlowError::Http(HttpError("timeout".into())));
+        assert_eq!(err.to_string(), "network: timeout");
+    }
+
+    #[test]
+    fn fetch_svid_uses_config() {
+        let mut http = FakeHttp::default().fail("timeout");
+        let attestor = defakto::attest::HmacAttestor::new(
+            "c6-demo".into(),
+            defakto::attest::SoftwareHmacKey(vec![0; 32]),
+            "software HMAC",
+        );
+        let err = fetch_svid(&mut http, &cfg(), &attestor, NOW, "00").unwrap_err();
+        assert_eq!(http.requests[0].url, format!("{SERVERLESS_URL}{}", serverless::FETCH_JWT_SVID_PATH));
         assert_eq!(err.to_string(), "network: timeout");
     }
 
@@ -341,10 +271,9 @@ mod tests {
 
         assert_eq!(claims.greeting, "Hi, Alice!");
         assert_eq!(http.requests[0].url, TOKEN_URL);
-        assert_eq!(http.requests[0].content_type, oauth::FORM_CONTENT_TYPE);
         assert_eq!(
             http.requests[0].body,
-            oauth::token_exchange_form("id.tok.en", oauth::TOKEN_TYPE_ID_TOKEN, "svid.jwt.sig").into_bytes()
+            token_exchange::request_form("id.tok.en", token_exchange::TOKEN_TYPE_ID_TOKEN, "svid.jwt.sig").into_bytes()
         );
     }
 }

@@ -2,11 +2,16 @@
 
 use prost::Message;
 
-use crate::attest::Evidence;
+use crate::attest::{Attestor, Evidence};
 use crate::grpcweb;
+use crate::http::HttpClient;
+use crate::Error;
 
 pub const FETCH_JWT_SVID_PATH: &str =
     "/com.spirl.serverless.alpha.SpiffeWorkloadAPI/FetchJWTSVID";
+
+/// Evidence timestamps before this (2024-01-01) mean the clock was never set.
+const EARLIEST_VALID_TIME: i64 = 1_704_067_200;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SvidToken {
@@ -96,9 +101,30 @@ pub fn parse_fetch_jwt_svid(message: &[u8]) -> Result<SvidToken, ServerlessError
     Ok(SvidToken { spiffe_id: first.spiffe_id, token: first.svid })
 }
 
+/// Attests with `attestor` and fetches a JWT-SVID for `audience` from the
+/// serverless API at `base_url`. The server rejects evidence whose timestamp
+/// is far from its own clock, so `now` must be real time.
+pub fn fetch_jwt_svid(
+    http: &mut impl HttpClient,
+    base_url: &str,
+    audience: &str,
+    attestor: &dyn Attestor,
+    now: i64,
+    nonce: &str,
+) -> Result<SvidToken, Error> {
+    if now < EARLIEST_VALID_TIME {
+        return Err(Error::ClockNotSet);
+    }
+    let evidence = attestor.evidence(now, nonce)?;
+    let body = fetch_jwt_svid_body(&evidence, audience);
+    let url = format!("{base_url}{FETCH_JWT_SVID_PATH}");
+    let resp = http.post(&url, grpcweb::CONTENT_TYPE, &body, grpcweb::READ_HEADERS)?;
+    Ok(parse_fetch_jwt_svid(&grpcweb::parse_response(&resp)?)?)
+}
+
 /// Encodes a response message holding the given `(spiffe_id, token)` SVIDs.
 #[cfg(test)]
-pub(crate) fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
+fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
     let svids = svids
         .iter()
         .map(|(id, token)| pb::JwtSvid { spiffe_id: (*id).into(), svid: (*token).into(), hint: String::new() })
@@ -109,6 +135,8 @@ pub(crate) fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attest::{HmacAttestor, SoftwareHmacKey};
+    use crate::testing::FakeHttp;
 
     fn evidence() -> Evidence {
         Evidence { method_type: "extension", method_version: "1.0", payload: b"{\"x\":1}".to_vec() }
@@ -155,5 +183,39 @@ mod tests {
     #[test]
     fn response_garbage_is_decode_error() {
         assert!(matches!(parse_fetch_jwt_svid(&[0x0a, 0xff]), Err(ServerlessError::Decode(_))));
+    }
+
+    const NOW: i64 = 1_792_200_000;
+
+    fn attestor() -> HmacAttestor<SoftwareHmacKey> {
+        HmacAttestor::new("c6-demo".into(), SoftwareHmacKey((0u8..32).collect()), "software HMAC")
+    }
+
+    #[test]
+    fn fetch_posts_grpc_web() {
+        let mut body = grpcweb::frame(&encode_response(&[("spiffe://p/iot/c6-demo", "jwt")]));
+        body.extend([0x80, 0, 0, 0, 15]);
+        body.extend(b"grpc-status:0\r\n");
+        let mut http = FakeHttp::default().reply(200, body);
+
+        let svid = fetch_jwt_svid(&mut http, "https://tds", "https://issuer.example", &attestor(), NOW, "0011223344556677");
+
+        assert_eq!(svid, Ok(SvidToken { spiffe_id: "spiffe://p/iot/c6-demo".into(), token: "jwt".into() }));
+        let req = &http.requests[0];
+        assert_eq!(req.url, format!("https://tds{FETCH_JWT_SVID_PATH}"));
+        assert_eq!(req.content_type, grpcweb::CONTENT_TYPE);
+        assert_eq!(req.read_headers, grpcweb::READ_HEADERS);
+        let ev = attestor().evidence(NOW, "0011223344556677").unwrap();
+        assert_eq!(req.body, fetch_jwt_svid_body(&ev, "https://issuer.example"));
+    }
+
+    #[test]
+    fn fetch_rejects_unset_clock() {
+        let mut http = FakeHttp::default();
+        assert_eq!(
+            fetch_jwt_svid(&mut http, "https://tds", "aud", &attestor(), 1_000, "00"),
+            Err(Error::ClockNotSet)
+        );
+        assert!(http.requests.is_empty());
     }
 }

@@ -1,5 +1,5 @@
-//! The network seam: core logic posts through `HttpClient`, which the host CLI
-//! and the firmware each implement.
+//! The network seam: every call posts through `HttpClient`, which each platform
+//! implements (ureq on the host, ESP-IDF's HTTP client on the device).
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HttpResponse {

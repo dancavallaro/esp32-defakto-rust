@@ -1,15 +1,9 @@
-//! Reading JWT claims for display. Nothing here verifies a signature: the OBO
-//! token arrives straight from the Trust Domain Server over TLS and is only shown.
+//! What the result screen shows, read from the OBO token. Its signature isn't
+//! checked: it arrives straight from the Trust Domain Server over TLS and is
+//! only displayed.
 
+use defakto::jwt::{decode_claims, JwtError};
 use serde_json::Value;
-
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub enum JwtError {
-    #[error("malformed token")]
-    Malformed,
-    #[error("token missing {0}")]
-    Missing(&'static str),
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayClaims {
@@ -20,19 +14,6 @@ pub struct DisplayClaims {
     pub actor: String,
     pub txn: Option<String>,
     pub exp: i64,
-}
-
-pub fn decode_claims(jwt: &str) -> Result<Value, JwtError> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-
-    let mut parts = jwt.split('.');
-    let payload = match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some(_), Some(p), Some(_), None) => p,
-        _ => return Err(JwtError::Malformed),
-    };
-    let bytes = URL_SAFE_NO_PAD.decode(payload).map_err(|_| JwtError::Malformed)?;
-    serde_json::from_slice(&bytes).map_err(|_| JwtError::Malformed)
 }
 
 impl DisplayClaims {
@@ -73,14 +54,7 @@ fn greeting(name: Option<&str>, email: Option<&str>) -> String {
 
 #[cfg(test)]
 pub(crate) mod fixtures {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
     use serde_json::{json, Value};
-
-    pub fn make_jwt(payload: &Value) -> String {
-        let enc = |v: &Value| URL_SAFE_NO_PAD.encode(v.to_string());
-        format!("{}.{}.sig", enc(&json!({"alg":"ES256","typ":"JWT"})), enc(payload))
-    }
 
     pub fn alice_obo() -> Value {
         json!({
@@ -102,6 +76,7 @@ pub(crate) mod fixtures {
 mod tests {
     use super::fixtures::*;
     use super::*;
+    use defakto::testing::make_jwt;
     use serde_json::json;
 
     #[test]
@@ -144,11 +119,5 @@ mod tests {
     fn missing_obo_is_error() {
         let payload = json!({"sub": "s", "exp": 1});
         assert_eq!(DisplayClaims::from_obo_jwt(&make_jwt(&payload)), Err(JwtError::Missing("obo")));
-    }
-
-    #[test]
-    fn garbage_is_malformed() {
-        assert_eq!(decode_claims("not-a-jwt"), Err(JwtError::Malformed));
-        assert_eq!(decode_claims("a.!!!.c"), Err(JwtError::Malformed));
     }
 }

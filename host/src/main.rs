@@ -11,12 +11,13 @@ use anyhow::{Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use clap::{Parser, Subcommand};
-use demo::attest::{HmacAttestor, SoftwareHmacKey};
-use demo::evidence::{new_nonce, validate_device_id};
+use defakto::attest::{HmacAttestor, SoftwareHmacKey};
+use defakto::evidence::{new_nonce, validate_device_id};
+use defakto::jwt::decode_claims;
+use defakto::serverless::SvidToken;
+use defakto::token_exchange::TOKEN_TYPE_ID_TOKEN;
+use demo::claims::DisplayClaims;
 use demo::flow::{self, Config};
-use demo::jwt::decode_claims;
-use demo::oauth::TOKEN_TYPE_ID_TOKEN;
-use demo::serverless::SvidToken;
 
 use crate::http::UreqClient;
 
@@ -71,7 +72,7 @@ fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
     let obo = flow::exchange_token(http, cfg, &id_token, &svid)?;
     println!("OBO token claims:");
     print_claims(&obo)?;
-    println!("{:#?}", demo::jwt::DisplayClaims::from_obo_jwt(&obo)?);
+    println!("{:#?}", DisplayClaims::from_obo_jwt(&obo)?);
     Ok(())
 }
 
