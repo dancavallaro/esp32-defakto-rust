@@ -1,0 +1,4 @@
+//! Hardware-free protocol and state logic for the Defakto OBO demo.
+
+pub mod grpcweb;
+pub mod http;
