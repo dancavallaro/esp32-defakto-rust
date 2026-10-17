@@ -25,9 +25,10 @@ use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use log::{info, warn};
 
+use crate::attest::Attestors;
 use crate::config::CONFIG;
 use crate::http::EspClient;
-use crate::worker::{EspClock, Worker};
+use crate::worker::{Active, EspClock, Worker};
 
 const POLL: Duration = Duration::from_millis(20);
 
@@ -61,7 +62,9 @@ fn main() -> Result<()> {
     let mut screens = Screens::new();
 
     let cfg = config::flow_config();
-    let attestor = attest::build(CONFIG.default_attestor, CONFIG.device_id, &nvs)?;
+    let attestors = Attestors::new(CONFIG.device_id, CONFIG.efuse_hmac_key, nvs.clone());
+    let kind = attestors.saved(CONFIG.default_attestor);
+    let attestor = attestors.build(&kind)?;
     let mut app = App::new(Status { wifi: false, svid: false, attestor: attestor.label().to_string() });
     screens.show(&app);
 
@@ -82,7 +85,7 @@ fn main() -> Result<()> {
     screens.show(&app);
 
     let (events_tx, events) = mpsc::channel();
-    let worker = Worker::spawn(cfg, attestor, events_tx)?;
+    let worker = Worker::spawn(cfg, attestors, Active { kind, attestor }, events_tx)?;
     let mut button = button::Button::new(peripherals.pins.gpio9)?;
     #[cfg(not(feature = "xiao"))]
     let mut touch = touch::Touch::new(
@@ -107,7 +110,7 @@ fn main() -> Result<()> {
             worker.send(app.handle(Event::Tap));
         }
         if gesture == Some(Gesture::LongPress) {
-            info!("long press");
+            worker.send(app.handle(Event::LongPress));
         }
         while let Ok(ev) = events.try_recv() {
             pacer.push(ev);

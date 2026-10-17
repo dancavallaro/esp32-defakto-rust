@@ -39,6 +39,9 @@ pub struct Status {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Tap,
+    LongPress,
+    /// The worker switched attestors and re-attested with the new one.
+    AttestorChanged { label: String, svid: bool },
     LoginStarted { auth: DeviceAuthorization, now: i64 },
     SignedIn,
     SvidReady,
@@ -51,6 +54,7 @@ pub enum Command {
     None,
     StartLogin,
     Cancel,
+    SwitchAttestor,
 }
 
 pub struct App {
@@ -67,9 +71,15 @@ impl App {
     /// login the user already cancelled.
     pub fn handle(&mut self, ev: Event) -> Command {
         use Screen::*;
+        if let Event::AttestorChanged { label, svid } = ev {
+            self.status.attestor = label;
+            self.status.svid = svid;
+            return Command::None;
+        }
         let in_flight = matches!(self.screen, Starting | Qr { .. } | Progress(_));
         let (next, cmd) = match (&self.screen, ev) {
             (Idle, Event::Tap) => (Starting, Command::StartLogin),
+            (Idle, Event::LongPress) => (Idle, Command::SwitchAttestor),
             (Qr { .. }, Event::Tap) => (Idle, Command::Cancel),
             (Result(_) | Error(_), Event::Tap) => (Idle, Command::None),
             (Starting, Event::LoginStarted { auth, now }) => (
@@ -229,6 +239,30 @@ mod tests {
         app.handle(started());
         app.handle(Event::Tap);
         app.handle(Event::Failed("late".into()));
+        assert_eq!(app.screen, Screen::Idle);
+    }
+
+    #[test]
+    fn long_press_on_idle_switches() {
+        let mut app = App::new(Status::default());
+        assert_eq!(app.handle(Event::LongPress), Command::SwitchAttestor);
+        assert_eq!(app.screen, Screen::Idle);
+    }
+
+    #[test]
+    fn long_press_elsewhere_ignored() {
+        let mut app = App::new(Status::default());
+        app.handle(Event::Tap);
+        app.handle(started());
+        assert_eq!(app.handle(Event::LongPress), Command::None);
+        assert!(matches!(app.screen, Screen::Qr { .. }));
+    }
+
+    #[test]
+    fn attestor_changed_updates_status() {
+        let mut app = App::new(Status { wifi: true, svid: true, attestor: "NVS HMAC".into() });
+        assert_eq!(app.handle(Event::AttestorChanged { label: "eFuse HMAC".into(), svid: false }), Command::None);
+        assert_eq!(app.status, Status { wifi: true, svid: false, attestor: "eFuse HMAC".into() });
         assert_eq!(app.screen, Screen::Idle);
     }
 }

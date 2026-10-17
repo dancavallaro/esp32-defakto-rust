@@ -10,6 +10,9 @@ use defakto::attest::Attestor;
 use demo::app::{Command, Event};
 use demo::flow::{self, Clock, Config, FlowError};
 
+use log::{info, warn};
+
+use crate::attest::{self, Attestors};
 use crate::http::EspClient;
 use crate::net;
 
@@ -21,14 +24,14 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn spawn(cfg: Config, attestor: Box<dyn Attestor>, events: Sender<Event>) -> anyhow::Result<Self> {
+    pub fn spawn(cfg: Config, attestors: Attestors, active: Active, events: Sender<Event>) -> anyhow::Result<Self> {
         let (commands, inbox) = std::sync::mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let flag = cancel.clone();
         std::thread::Builder::new()
             .name("worker".into())
             .stack_size(STACK_SIZE)
-            .spawn(move || run(cfg, attestor, inbox, events, flag))?;
+            .spawn(move || run(cfg, attestors, active, inbox, events, flag))?;
         Ok(Self { commands, cancel })
     }
 
@@ -38,24 +41,65 @@ impl Worker {
         match cmd {
             Command::None => {}
             Command::Cancel => self.cancel.store(true, Ordering::SeqCst),
-            Command::StartLogin => {
+            Command::StartLogin | Command::SwitchAttestor => {
                 let _ = self.commands.send(cmd);
             }
         }
     }
 }
 
-fn run(cfg: Config, attestor: Box<dyn Attestor>, inbox: Receiver<Command>, events: Sender<Event>, cancel: Arc<AtomicBool>) {
+/// The attestor in use and the kind it was built from.
+pub struct Active {
+    pub kind: String,
+    pub attestor: Box<dyn Attestor>,
+}
+
+fn run(
+    cfg: Config,
+    attestors: Attestors,
+    mut active: Active,
+    inbox: Receiver<Command>,
+    events: Sender<Event>,
+    cancel: Arc<AtomicBool>,
+) {
     for cmd in inbox {
-        if cmd != Command::StartLogin {
-            continue;
-        }
-        cancel.store(false, Ordering::SeqCst);
-        match login(&cfg, attestor.as_ref(), &events, &cancel) {
-            Ok(()) | Err(FlowError::Cancelled) => {}
-            Err(e) => {
-                let _ = events.send(Event::Failed(e.to_string()));
+        match cmd {
+            Command::StartLogin => {
+                cancel.store(false, Ordering::SeqCst);
+                match login(&cfg, active.attestor.as_ref(), &events, &cancel) {
+                    Ok(()) | Err(FlowError::Cancelled) => {}
+                    Err(e) => {
+                        let _ = events.send(Event::Failed(e.to_string()));
+                    }
+                }
             }
+            Command::SwitchAttestor => match switch(&cfg, &attestors, &mut active) {
+                Ok(svid) => {
+                    let label = active.attestor.label().to_owned();
+                    let _ = events.send(Event::AttestorChanged { label, svid });
+                }
+                Err(e) => warn!("switching attestor failed: {e:#}"),
+            },
+            Command::None | Command::Cancel => {}
+        }
+    }
+}
+
+/// Moves to the next attestor and re-attests with it, returning whether that
+/// worked. The choice is kept either way, so the screen shows a failing
+/// backend as unattested instead of hiding it.
+fn switch(cfg: &Config, attestors: &Attestors, active: &mut Active) -> anyhow::Result<bool> {
+    let kind = attest::next(&active.kind);
+    *active = Active { kind: kind.to_owned(), attestor: attestors.build(kind)? };
+    attestors.save(kind)?;
+    match flow::fetch_svid(&mut EspClient, cfg, active.attestor.as_ref(), EspClock.unix_now(), &nonce()) {
+        Ok(svid) => {
+            info!("attested with {} as {}", active.attestor.label(), svid.spiffe_id);
+            Ok(true)
+        }
+        Err(e) => {
+            warn!("attesting with {} failed: {e}", active.attestor.label());
+            Ok(false)
         }
     }
 }

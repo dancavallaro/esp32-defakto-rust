@@ -24,6 +24,9 @@ pub struct Config {
     obo_audience: &'static str,
     #[default("nvs")]
     default_attestor: &'static str,
+    /// The eFuse key block (0 to 5) holding the device secret for `efuse`.
+    #[default(5)]
+    efuse_hmac_key: u8,
 }
 
 pub fn flow_config() -> demo::flow::Config {
