@@ -40,7 +40,9 @@ pub struct Display {
 
 impl Display {
     pub fn new(spi: SPI2<'static>, pins: Pins, timer: TIMER0<'static>, channel: CHANNEL0<'static>) -> Result<Self> {
-        let bus = config::DriverConfig::new().dma(Dma::Auto(STRIP_BYTES));
+        // No DMA: ESP-TEE resets the whole GDMA block whenever it uses its crypto DMA
+        // (WiFi and TLS do), which silently wipes any channel the app holds.
+        let bus = config::DriverConfig::new().dma(Dma::Disabled);
         let device = config::Config::new().baudrate(Hertz(40_000_000)).write_only(true);
         let spi = SpiDeviceDriver::new(
             SpiDriver::new(spi, pins.sclk, pins.mosi, None::<esp_idf_svc::hal::gpio::AnyIOPin>, &bus)?,
