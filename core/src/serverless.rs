@@ -96,6 +96,16 @@ pub fn parse_fetch_jwt_svid(message: &[u8]) -> Result<SvidToken, ServerlessError
     Ok(SvidToken { spiffe_id: first.spiffe_id, token: first.svid })
 }
 
+/// Encodes a response message holding the given `(spiffe_id, token)` SVIDs.
+#[cfg(test)]
+pub(crate) fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
+    let svids = svids
+        .iter()
+        .map(|(id, token)| pb::JwtSvid { spiffe_id: (*id).into(), svid: (*token).into(), hint: String::new() })
+        .collect();
+    pb::FetchJwtSvidResponse { jwt_svids: Some(pb::JwtSvidResult { svids }) }.encode_to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
