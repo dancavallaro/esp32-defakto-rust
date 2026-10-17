@@ -8,3 +8,4 @@ pub mod serverless;
 pub mod jwt;
 pub mod oauth;
 pub mod flow;
+pub mod app;
