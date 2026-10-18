@@ -1,5 +1,6 @@
 [build]
 target = "riscv32imac-esp-espidf"
+rustc-wrapper = "./check-idf.sh"
 
 [target.riscv32imac-esp-espidf]
 linker = "ldproxy"
