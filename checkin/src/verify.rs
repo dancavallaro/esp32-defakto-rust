@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The trust domain's signing keys, by key ID.
@@ -28,7 +28,7 @@ impl Keys {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Attendee {
     pub name: Option<String>,
     pub email: Option<String>,

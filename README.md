@@ -83,8 +83,19 @@ Its settings can also live in `checkin/.env`:
 | `CHECKIN_DEVICES` | Optional, comma-separated: the device SPIFFE IDs allowed to check people in. Unset allows any. |
 | `CHECKIN_USER_ISSUERS` | Optional, comma-separated: the user IdPs allowed. Unset allows any. |
 | `CHECKIN_LISTEN` | Where to listen. The default is `0.0.0.0:8080`. |
+| `CHECKIN_DATA` | Optional: a file to keep check-ins in, so they survive a restart. Unset keeps them in memory only. |
 
-The list lives in memory, so a restart clears it. `checkin/build.sh` tests it, then builds a container image
+`CHECKIN_DATA` is a JSON Lines journal: the service appends each check-in and reset, and replays the file when it
+starts. `POST /reset` empties the list. It has no authentication, so it listens only on `127.0.0.1:8081`. A reset
+leaves the earlier check-ins in the file, but they're no longer replayed. To start a fresh demo in Kubernetes,
+forward the admin port to the pod:
+
+```sh
+kubectl port-forward deploy/checkin 8081 &
+curl -X POST localhost:8081/reset
+```
+
+`checkin/build.sh` tests the service, then builds a container image
 for amd64 and arm64 and pushes it to `ghcr.io/dancavallaro/esp32-spiffe-rust/checkin`, tagged `latest` and with the
 version in `checkin/Cargo.toml`. Pass `--no-push` to only build.
 
