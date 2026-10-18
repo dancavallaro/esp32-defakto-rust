@@ -524,6 +524,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp32-attestor"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "esp-attest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
