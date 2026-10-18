@@ -103,7 +103,13 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use esp_attest::hmac::{evidence_json, sign};
+
     use super::*;
+    use crate::verifier::Outcome;
 
     /// A fresh directory per test, under the system temp dir.
     fn temp_dir(test: &str) -> PathBuf {
@@ -168,5 +174,44 @@ mod tests {
         std::os::unix::fs::symlink("v2", dir.join("..data_tmp")).unwrap();
         fs::rename(dir.join("..data_tmp"), dir.join("..data")).unwrap();
         assert!(matches!(watcher.poll(), Change::Changed(b) if b == b"two"));
+    }
+
+    const NOW: i64 = 1789200000;
+    const SECRET_A: [u8; 32] = *b"0123456789abcdef0123456789abcdef";
+    const SECRET_B: [u8; 32] = *b"fedcba9876543210fedcba9876543210";
+
+    fn entry(id: &str, secret: &[u8; 32]) -> String {
+        format!(r#""{id}":{{"secret":"{}"}}"#, STANDARD.encode(secret))
+    }
+
+    fn attests(verifier: &Verifier, id: &str, secret: &[u8; 32]) -> bool {
+        let nonce = format!("{:016x}", rand_nonce());
+        let evidence = evidence_json(id, NOW, &nonce, &sign(id, NOW, &nonce, secret));
+        let now = UNIX_EPOCH + Duration::from_secs(NOW as u64);
+        verifier.attest(&evidence, now).1.outcome == Outcome::Accepted
+    }
+
+    // A fresh nonce per call, so the replay cache never answers for the verifier.
+    fn rand_nonce() -> u64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+    }
+
+    #[test]
+    fn bad_enrollment_update_keeps_last_good_list() {
+        let path = temp_dir("keep-last-good").join("enrollment.json");
+        let first = format!("{{{}}}", entry("device-a", &SECRET_A));
+        let mut watcher = watch(&path, first.as_bytes());
+        let verifier = Verifier::new(enrollment::parse(first.as_bytes()).unwrap(), Duration::from_secs(60));
+        assert!(attests(&verifier, "device-a", &SECRET_A));
+
+        fs::write(&path, b"{").unwrap();
+        reload_enrollment(&verifier, &mut watcher);
+        assert!(attests(&verifier, "device-a", &SECRET_A));
+
+        let both = format!("{{{},{}}}", entry("device-a", &SECRET_A), entry("device-b", &SECRET_B));
+        fs::write(&path, both).unwrap();
+        reload_enrollment(&verifier, &mut watcher);
+        assert!(attests(&verifier, "device-b", &SECRET_B));
+        assert!(attests(&verifier, "device-a", &SECRET_A));
     }
 }
