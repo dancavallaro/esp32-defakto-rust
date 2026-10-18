@@ -7,10 +7,18 @@ in through.
 
 There's no shared API key baked into the device, and no user password ever touches it.
 
+<p align="center">
+  <img src="docs/images/idle.png" width="180" alt="Idle screen: the Defakto logo and a pulsing 'tap to check in' prompt">
+  <img src="docs/images/qr.png" width="180" alt="Sign-in screen: a QR code, the IdP's device URL and a one-time code">
+  <img src="docs/images/progress.png" width="180" alt="Progress screen: attested, signed in, got JWT-SVID, token exchange, checking in">
+  <img src="docs/images/receipt.png" width="180" alt="Receipt: 'Hi, Alice!', checked in, with the user, IdP and the device's SPIFFE ID">
+</p>
+<p align="center"><sub>Tap, scan, sign in on your phone, and you're checked in. (Renders, with example values.)</sub></p>
+
 ## How it works
 
-1. **The device proves what it is.** At boot it attests to Defakto and receives a JWT-SVID,
-   `spiffe://prod.cavallaro.local/iot/defakto-demo`. It attests in one of two ways: an HMAC over a secret burned
+1. **The device proves what it is.** At boot it attests to Defakto and receives a JWT-SVID, such
+   as `spiffe://example.org/iot/badge-reader`. It attests in one of two ways: an HMAC over a secret burned
    into read-protected eFuse, or a token signed by the chip's ESP-TEE. The TEE's token also reports which firmware
    version is running.
 2. **The attendee proves who they are.** A tap starts an OAuth device-code login (RFC 8628), and the screen shows
@@ -36,6 +44,8 @@ The firmware is open source. To deploy it, you:
 - **Flash it.** From `firmware/`, run `cargo run --release`.
 
 ## The check-in endpoint
+
+<img src="docs/images/error.png" width="150" align="right" alt="Error screen: 'Check-in failed: check-in refused: HTTP 403'">
 
 The device sends `POST <checkin_url>` with `Authorization: Bearer <OBO token>` and a body of `{}`. Any 2xx response
 means the check-in was recorded. Anything else shows "Check-in failed" with the status code. Everything the service
