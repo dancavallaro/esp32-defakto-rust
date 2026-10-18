@@ -17,6 +17,9 @@ const CHOICE_KEY: &str = "attestor";
 /// The order a long press cycles through.
 const KINDS: [&str; 2] = ["efuse", "tee"];
 
+/// What boot falls back to when the saved backend can't be built, e.g. a broken TEE.
+pub const FALLBACK: &str = "efuse";
+
 pub struct Attestors {
     device_id: &'static str,
     efuse_key: u8,

@@ -78,8 +78,16 @@ fn run() -> Result<()> {
 
     let cfg = config::flow_config();
     let attestors = Attestors::new(CONFIG.device_id, CONFIG.efuse_hmac_key, nvs.clone());
-    let kind = attestors.saved(CONFIG.default_attestor);
-    let attestor = attestors.build(&kind)?;
+    let mut kind = attestors.saved(CONFIG.default_attestor);
+    // Failing here would restart forever on a board whose saved backend is broken.
+    let attestor = match attestors.build(&kind) {
+        Ok(attestor) => attestor,
+        Err(e) => {
+            warn!("building the {kind} attestor failed: {e:#}; using {}", attest::FALLBACK);
+            kind = attest::FALLBACK.to_owned();
+            attestors.build(&kind)?
+        }
+    };
     let mut app = App::new(Status { wifi: false, svid: false, attestor: attestor.label().to_string() });
     screens.show(&app);
 
