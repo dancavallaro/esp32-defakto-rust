@@ -79,8 +79,9 @@ Its settings can also live in `checkin/.env`:
 | `CHECKIN_USER_ISSUERS` | Optional, comma-separated: the user IdPs allowed. Unset allows any. |
 | `CHECKIN_LISTEN` | Where to listen. The default is `0.0.0.0:8080`. |
 
-The list lives in memory, so a restart clears it. To run it as a container, build from the repo root with
-`docker build -f checkin/Dockerfile -t checkin .`, adding `--platform linux/amd64` for an x86 cluster.
+The list lives in memory, so a restart clears it. `checkin/build.sh` tests it, then builds a container image
+for amd64 and arm64 and pushes it to `ghcr.io/dancavallaro/esp32-spiffe-rust/checkin`, tagged `latest` and with the
+version in `checkin/Cargo.toml`. Pass `--no-push` to only build.
 
 ## Hardware
 

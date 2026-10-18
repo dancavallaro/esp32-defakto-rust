@@ -27,7 +27,8 @@ A Cargo workspace of four packages, plus the firmware as a separate project:
 - `checkin/`: the check-in service the device checks people in with. It verifies each OBO token against the
   trust domain's JWKS (found through OIDC discovery), keeps the roster in memory, and serves a live page at `/` over
   server-sent events. It's demo-side, so it stays out of `defakto`. It builds into a container with
-  `checkin/Dockerfile`, from the repo root.
+  `checkin/Dockerfile`, from the repo root; `checkin/build.sh` builds it for amd64 and arm64 (cross-compiling, not
+  emulating) and pushes it to ghcr. Bump `checkin/Cargo.toml`'s version for each release.
 - `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
   workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
   from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. `display` drives the JD9853 panel one
