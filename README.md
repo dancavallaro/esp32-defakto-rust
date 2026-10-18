@@ -71,6 +71,12 @@ fresh attestation key to enroll.
 
 ## The setup wizard
 
+<p align="center">
+  <img src="docs/images/setup.png" width="180" alt="Setup screen: a QR code that joins the device's setup network, its name, the password, and 'then open 192.168.4.1'">
+  <img src="docs/images/set-up-by.png" width="180" alt="'Set up by alice', with a verified-DevID check, the developer's SPIFFE ID and the trust domain">
+</p>
+<p align="center"><sub>Scan to join the device's network and configure it, and it shows who set it up. (Renders, with example values.)</sub></p>
+
 A device needs no settings at build time. When its settings are incomplete, or when you hold the screen as it boots
 (or press and hold BOOT just after power-on), it opens a setup wizard:
 
