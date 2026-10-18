@@ -162,14 +162,16 @@ async fn roster(State(app): State<Arc<App>>) -> Json<serde_json::Value> {
 /// subscriber that falls behind skips what it missed; the page reloads the
 /// roster whenever it reconnects.
 async fn events(State(app): State<Arc<App>>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = BroadcastStream::new(app.updates.subscribe()).filter_map(|update| update.ok()).map(|update| {
+    let updates = BroadcastStream::new(app.updates.subscribe()).filter_map(|update| update.ok()).map(|update| {
         Ok(match update {
             Update::CheckIn(entry) => Event::default().event("checkin").json_data(entry).expect("entries serialize"),
             // A browser drops an event with no data.
             Update::Reset => Event::default().event("reset").data("reset"),
         })
     });
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    // Some browsers don't open the stream until its first bytes, which would otherwise wait for a keep-alive.
+    let hello = tokio_stream::once(Ok(Event::default().comment("connected")));
+    Sse::new(hello.chain(updates)).keep_alive(KeepAlive::default())
 }
 
 fn unix_now() -> i64 {

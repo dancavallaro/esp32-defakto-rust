@@ -188,6 +188,7 @@
     $("live-text").textContent = on ? "live" : "reconnecting…";
   }
 
+  load().catch(() => {});
   const events = new EventSource("events");
   events.addEventListener("open", () => { setLive(true); load().catch(() => {}); });
   events.addEventListener("error", () => setLive(false));
