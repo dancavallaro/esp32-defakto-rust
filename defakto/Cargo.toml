@@ -12,7 +12,6 @@ esp-attest = { path = "../esp-attest" }
 thiserror = "2"
 hmac = "0.12"
 sha2 = "0.10"
-hex = "0.4"
 prost = "0.13"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }

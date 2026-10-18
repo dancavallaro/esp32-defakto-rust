@@ -105,6 +105,7 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 - **Never commit secrets:** `host/.env`, `firmware/cfg.toml`, `nvs.csv`, `nvs.bin` and `secret.bin` are
   gitignored.
 - **Dan makes every external change.** That covers the IdPs (Pocket ID, Auth0), `~/workspace/homelab` (the Terraform
-  `TokenExchangePolicy`, the enrollment parameter) and `~/workspace/libcommon`. Hand those steps over rather than
+  `TokenExchangePolicy`, the enrollment parameter), `~/workspace/esp32/libcommon` and `~/workspace/telemetry` (removing the Go
+  attestor). Hand those steps over rather than
   editing them.
 - **Burning an eFuse key is irreversible, and only Dan does it.**

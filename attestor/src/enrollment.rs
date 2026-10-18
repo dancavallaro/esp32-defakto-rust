@@ -1,4 +1,4 @@
-//! The enrolled devices, read once at startup from the enrollment JSON.
+//! The enrolled devices, parsed from the enrollment JSON, at startup and again whenever the file changes.
 
 use std::collections::HashMap;
 use std::path::Path;

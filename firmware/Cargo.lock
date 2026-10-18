@@ -377,7 +377,6 @@ dependencies = [
  "base64",
  "esp-attest",
  "form_urlencoded",
- "hex",
  "hmac",
  "prost",
  "serde",

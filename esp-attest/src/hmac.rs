@@ -79,6 +79,15 @@ mod tests {
         );
     }
 
+    // The trust domain server mangles non-UTF-8 bytes on their way to the webhook.
+    #[test]
+    fn evidence_json_is_ascii_only() {
+        let nonce = new_nonce(|b| *b = [0xff, 0xfe, 0x80, 0x81, 0xc3, 0x28, 0xa0, 0xa1]);
+        let mac = sign("defakto-demo", 1792200000, &nonce, &[0xff; 32]);
+        let json = evidence_json("defakto-demo", 1792200000, &nonce, &mac);
+        assert!(json.bytes().all(|b| b < 0x80), "non-ASCII byte in {json}");
+    }
+
     const DEVICE: &str = "a1b2c3d4e5f6";
     const TS: i64 = 1789200000;
     const NONCE: &str = "deadbeefcafe0001";
