@@ -13,13 +13,17 @@ managed=.embuild/espressif/esp-idf/$version
 patch="$PWD/patches/esp-tee-rom-read.patch"
 
 if [ ! -d "$tree" ]; then
+    # Built under another name so an interrupted run never leaves a partial $tree.
+    partial=$tree.partial
+    rm -rf "$partial"
     if [ -d "$managed/.git" ]; then
         echo "copying ESP-IDF $version from $managed"
-        cp -cR "$managed" "$tree" 2>/dev/null || cp -R "$managed" "$tree"
+        cp -cR "$managed" "$partial" 2>/dev/null || { rm -rf "$partial"; cp -R "$managed" "$partial"; }
     else
         git clone --depth 1 --shallow-submodules --recursive --branch "$version" \
-            https://github.com/espressif/esp-idf.git "$tree"
+            https://github.com/espressif/esp-idf.git "$partial"
     fi
+    mv "$partial" "$tree"
 fi
 
 if git -C "$tree" apply --reverse --check "$patch" 2>/dev/null; then
