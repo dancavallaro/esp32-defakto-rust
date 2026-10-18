@@ -33,6 +33,12 @@ pub fn tee_envelope(device_id: &str, ts: i64, nonce: &str, token: &[u8]) -> Resu
     ))
 }
 
+/// The TEE counts the C string's terminator in the token's length.
+pub fn without_terminators(token: &[u8]) -> &[u8] {
+    let end = token.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
+    &token[..end]
+}
+
 /// The compressed SEC1 public key the token was signed with, as enrolled with the webhook.
 pub fn tee_public_key(token: &[u8]) -> Result<String, AttestError> {
     #[derive(Deserialize)]
@@ -44,7 +50,7 @@ pub fn tee_public_key(token: &[u8]) -> Result<String, AttestError> {
         compressed: String,
     }
     let token: Token =
-        serde_json::from_slice(token).map_err(|e| AttestError(format!("TEE token has no public key: {e}")))?;
+        serde_json::from_slice(without_terminators(token)).map_err(|e| AttestError(format!("TEE token has no public key: {e}")))?;
     Ok(token.public_key.compressed)
 }
 
@@ -121,6 +127,15 @@ mod tests {
         let token = include_bytes!("../testdata/tee_token_sample.json");
         assert_eq!(
             tee_public_key(token).unwrap(),
+            "021271237805a371e0929ee8ad5b8907060adba2eea8b6692f7856b4b2b36300ee"
+        );
+    }
+
+    #[test]
+    fn public_key_ignores_terminators() {
+        let token = [include_bytes!("../testdata/tee_token_sample.json").as_slice(), b"\0\0"].concat();
+        assert_eq!(
+            tee_public_key(&token).unwrap(),
             "021271237805a371e0929ee8ad5b8907060adba2eea8b6692f7856b4b2b36300ee"
         );
     }

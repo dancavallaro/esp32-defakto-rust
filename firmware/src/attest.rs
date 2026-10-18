@@ -34,9 +34,7 @@ impl Attestors {
             "efuse" => Ok(Box::new(HmacAttestor::new(id, EfuseHmacKey::new(self.efuse_key)?, "eFuse HMAC"))),
             "tee" => {
                 // Logged so the key can be enrolled with the webhook.
-                let token = EspTee.token(0, 0)?;
-                let token = token.strip_suffix(&[0]).unwrap_or(&token);
-                info!("TEE attestation key: {}", tee_public_key(token)?);
+                info!("TEE attestation key: {}", tee_public_key(&EspTee.token(0, 0)?)?);
                 Ok(Box::new(TeeAttestor::new(id, EspTee)))
             }
             other => bail!("unknown attestor {other:?}"),

@@ -5,7 +5,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::evidence::{evidence_json, signing_string};
-use crate::tee_evidence::{tee_envelope, tee_nonce, TEE_CLIENT_ID};
+use crate::tee_evidence::{tee_envelope, tee_nonce, without_terminators, TEE_CLIENT_ID};
 
 /// What goes into one `MethodAttestation` of a serverless request.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +57,7 @@ impl<K: HmacKey> Attestor for HmacAttestor<K> {
     }
 }
 
-/// A key held in ordinary memory: the host CLI's, and the firmware's NVS fallback.
+/// A key held in ordinary memory, for the host CLI.
 pub struct SoftwareHmacKey(pub Vec<u8>);
 
 impl HmacKey for SoftwareHmacKey {
@@ -91,15 +91,11 @@ impl<T: TeeTokenSource> Attestor for TeeAttestor<T> {
     }
 
     fn evidence(&self, ts: i64, nonce: &str) -> Result<Evidence, AttestError> {
-        let mut token = self.source.token(tee_nonce(&self.device_id, ts, nonce), TEE_CLIENT_ID)?;
-        // The TEE counts the C string's terminator in the token's length.
-        while token.last() == Some(&0) {
-            token.pop();
-        }
+        let token = self.source.token(tee_nonce(&self.device_id, ts, nonce), TEE_CLIENT_ID)?;
         Ok(Evidence {
             method_type: "extension",
             method_version: "1.0",
-            payload: tee_envelope(&self.device_id, ts, nonce, &token)?.into_bytes(),
+            payload: tee_envelope(&self.device_id, ts, nonce, without_terminators(&token))?.into_bytes(),
         })
     }
 }
