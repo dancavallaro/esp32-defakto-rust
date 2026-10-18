@@ -50,18 +50,17 @@ A Cargo workspace of six packages, plus the firmware as a separate project:
   settings are incomplete, or when the screen or BOOT is held as the device boots: it starts an access point
   `defakto-setup-XXXX` with a random password, shows a QR code that joins it, and answers every DNS query with
   itself so the phone opens the portal. `demo::setup` and `demo::captive` hold its form, validation and DNS.
-  With `devid_issuer` and `devid_subjects` in `cfg.toml`, saving also takes a Defakto DevID JWT-SVID whose
-  audience is the device ID. The settings wait in NVS (key `pending`) until the next boot has joined their
-  network and verified the DevID, and are dropped if it fails, with the reason (key `problem`) shown by the
-  wizard.
-  `display` drives the JD9853 panel one strip at a time (there's no RAM for a full framebuffer) and `ui` draws
-  the screens. `console.rs` also prints
-  each screen to serial (the QR code as text), and is the only output with `--features xiao`. `touch` polls the
-  AXS5106L, and `demo::gesture` turns its samples into taps and long presses. The BOOT button (GPIO9) also taps.
-  A long press on the idle screen switches the attestor between `efuse` (the default) and `tee` and re-attests; the choice
-  is kept in NVS (namespace `demo`, key `attestor`). The Waveshare board's secret is burned into eFuse key block 5
-  (`HMAC_UP`, read-protected), which `efuse_hmac_key` in `cfg.toml` names. Under ESP-TEE the HMAC call is a
-  TEE secure service; TEE secure storage stays in development mode, so it never claims that key block.
+  With `devid_issuer` and `devid_subjects` in `cfg.toml`, saving also takes a Defakto DevID JWT-SVID whose audience
+  is the device ID. The settings wait in NVS (key `pending`) until the next boot has joined their network and
+  verified the DevID, and are dropped if it fails, with the reason (key `problem`) shown by the wizard. `display`
+  drives the JD9853 panel one strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens.
+  `console.rs` also prints each screen to serial (the QR code as text), and is the only output with
+  `--features xiao`. `touch` polls the AXS5106L, and `demo::gesture` turns its samples into taps and long presses.
+  The BOOT button (GPIO9) also taps. A long press on the idle screen switches the attestor between `efuse` (the
+  default) and `tee` and re-attests; the choice is kept in NVS (namespace `demo`, key `attestor`). The Waveshare
+  board's secret is burned into eFuse key block 5 (`HMAC_UP`, read-protected), which `efuse_hmac_key` in `cfg.toml`
+  names. Under ESP-TEE the HMAC call is a TEE secure service; TEE secure storage stays in development mode, so it
+  never claims that key block.
 
 Everything that can be tested without hardware lives in `defakto` or `demo`, so the firmware stays a thin layer
 that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core` split.

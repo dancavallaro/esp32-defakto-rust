@@ -41,9 +41,10 @@ The firmware is open source. To deploy it, you:
   [The attestor](#the-attestor)).
 - **Enroll the device with Defakto.** Point an `extension` attestor at your attestor, and add a token-exchange policy
   that lets the device act on behalf of your IdP's users.
-- **Fill in `firmware/cfg.toml`** (see `cfg.toml.example`). It holds the WiFi credentials, the IdP's device and
-  token endpoints, the client ID, and the trust domain's issuer.
 - **Flash it.** See [Building the firmware](#building-the-firmware).
+- **Configure it from your phone.** On first boot it opens a setup wizard for the WiFi network, the IdP's device and
+  token endpoints, the client ID, and the trust domain's issuer (see [The setup wizard](#the-setup-wizard)). You
+  can also build these into `firmware/cfg.toml` beforehand (see `cfg.toml.example`).
 
 ## Building the firmware
 
@@ -60,13 +61,49 @@ Then, from `firmware/`:
 
 ```sh
 ./patch-idf.sh                  # once: fetches ESP-IDF v5.5.5 and applies the TEE flash-read fix
-cp cfg.toml.example cfg.toml    # then fill it in
+cp cfg.toml.example cfg.toml    # every value is optional; see "The setup wizard"
 cargo run --release             # builds, flashes and opens the serial monitor
 ```
 
 The first build also downloads ESP-IDF's toolchain (the RISC-V compiler, cmake and ninja) into `firmware/.embuild/`,
 so it takes a while. On a board's first TEE flash, use `TEE_PROVISION=1 cargo run --release`, which gives the TEE a
 fresh attestation key to enroll.
+
+## The setup wizard
+
+A device needs no settings at build time. When its settings are incomplete, or when you hold the screen as it boots
+(or press and hold BOOT just after power-on), it opens a setup wizard:
+
+1. The screen shows a QR code that joins the device's own WiFi network, `defakto-setup-XXXX`, with a fresh random
+   password beneath it.
+2. Your phone opens the setup page by itself, as on hotel WiFi. If it doesn't, browse to `http://192.168.4.1`.
+3. The page lists nearby networks and every setting `cfg.toml` holds. Saving stores them on the device, which
+   restarts with them.
+
+Settings saved this way take precedence over `cfg.toml`, which then only supplies defaults.
+
+### Guarding it with a DevID
+
+The password on screen only proves that someone is standing at the device. To let only your developers set one up,
+add the trust domain's DevID issuer, and the SPIFFE IDs to accept, to `cfg.toml`:
+
+```toml
+devid_issuer = "https://fed.spirl.org/t-…/td-…"
+devid_subjects = "spiffe://example.org/users/"
+```
+
+The setup page then asks for a [Defakto DevID](https://d.defakto.security/mint/dev-id/overview) JWT-SVID whose
+audience is the device ID, and shows the command that fetches one:
+
+```sh
+defakto dev-id fetch jwt-svid --trust-domain example.org --audience badge-reader
+```
+
+Paste the token it saves into the page. With a Mac and an iPhone,
+`pbcopy < ~/.defakto/dev-id/example.org/svids/jwt-svid` puts it on the phone's clipboard too. The device can't check
+the signature while it's only an access point, so it restarts, joins the new network, and verifies the token against
+the trust domain's keys before using the settings. The screen then shows who set it up, or why it refused the
+settings, in which case it goes back to the wizard.
 
 ## The check-in endpoint
 
@@ -192,7 +229,8 @@ TLS pair at the default paths.
 ## Hardware
 
 The device is a Waveshare ESP32-C6-Touch-LCD-1.47. A tap on the screen or the BOOT button starts a check-in. A long
-press on the idle screen switches between eFuse and TEE attestation.
+press on the idle screen switches between eFuse and TEE attestation. Holding the screen as it boots opens the setup
+wizard.
 
 A Seeed XIAO ESP32C6 also works, headless and with TEE attestation only. It prints each screen to serial.
 
