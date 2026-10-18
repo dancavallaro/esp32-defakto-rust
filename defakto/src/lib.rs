@@ -3,13 +3,11 @@
 //! callers supply the HTTP transport and the attestation key.
 
 pub mod attest;
-pub mod evidence;
 pub mod grpcweb;
 pub mod http;
 pub mod jwt;
 pub mod oauth;
 pub mod serverless;
-pub mod tee_evidence;
 pub mod token_exchange;
 
 #[cfg(any(test, feature = "testing"))]

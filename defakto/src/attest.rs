@@ -4,8 +4,8 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::evidence::{evidence_json, signing_string};
-use crate::tee_evidence::{tee_envelope, tee_nonce, without_terminators, TEE_CLIENT_ID};
+use esp_attest::hmac::{evidence_json, signing_string};
+use esp_attest::tee::{tee_envelope, tee_nonce, without_terminators, TEE_CLIENT_ID};
 
 /// What goes into one `MethodAttestation` of a serverless request.
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +18,12 @@ pub struct Evidence {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[error("attestation failed: {0}")]
 pub struct AttestError(pub String);
+
+impl From<esp_attest::Error> for AttestError {
+    fn from(e: esp_attest::Error) -> Self {
+        Self(e.0)
+    }
+}
 
 pub trait Attestor: Send {
     /// Shown on screen, e.g. "eFuse HMAC".
@@ -123,7 +129,7 @@ mod tests {
         assert_eq!(attestor.label(), "software HMAC");
     }
 
-    const SAMPLE_TOKEN: &[u8] = include_bytes!("../testdata/tee_token_sample.json");
+    const SAMPLE_TOKEN: &[u8] = include_bytes!("../../esp-attest/testdata/tee_token_sample.json");
 
     struct FakeTee {
         calls: Arc<Mutex<Option<(u32, u32)>>>,

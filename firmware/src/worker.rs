@@ -114,7 +114,7 @@ fn switch(cfg: &Config, attestors: &Attestors, active: &mut Active) -> anyhow::R
 
 /// Only random once the radio is on, which it is by the time anything attests.
 pub fn nonce() -> String {
-    defakto::evidence::new_nonce(|b| unsafe { esp_idf_svc::sys::esp_fill_random(b.as_mut_ptr().cast(), b.len()) })
+    esp_attest::hmac::new_nonce(|b| unsafe { esp_idf_svc::sys::esp_fill_random(b.as_mut_ptr().cast(), b.len()) })
 }
 
 pub struct EspClock;

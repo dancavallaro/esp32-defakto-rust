@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+esp-attest = { path = "../esp-attest" }
 defakto = { path = "../defakto" }
 demo = { path = "../demo" }
 anyhow = "1"

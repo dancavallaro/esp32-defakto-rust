@@ -1,11 +1,10 @@
-//! ESP-TEE evidence for the `esp32-attestor` webhook: the TEE's attestation token,
-//! wrapped in an envelope that binds it to the same `device_id|ts|nonce` as HMAC.
+//! ESP-TEE evidence: the TEE's attestation token, wrapped in an envelope that binds it to the same `device_id|ts|nonce` as HMAC.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::attest::AttestError;
-use crate::evidence::signing_string;
+use crate::hmac::signing_string;
+use crate::Error;
 
 pub const TEE_FORMAT: &str = "esp-tee-eat/1";
 
@@ -20,13 +19,13 @@ pub fn tee_nonce(device_id: &str, ts: i64, nonce: &str) -> u32 {
 
 /// The token goes in verbatim: the TEE's signature covers its exact bytes. Field order
 /// matters for the same reason as `evidence_json`.
-pub fn tee_envelope(device_id: &str, ts: i64, nonce: &str, token: &[u8]) -> Result<String, AttestError> {
+pub fn tee_envelope(device_id: &str, ts: i64, nonce: &str, token: &[u8]) -> Result<String, Error> {
     // The trust domain server mangles anything that isn't 7-bit ASCII on its way to the webhook.
     if !token.is_ascii() {
-        return Err(AttestError("TEE token is not ASCII".into()));
+        return Err(Error("TEE token is not ASCII".into()));
     }
     serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(token)
-        .map_err(|e| AttestError(format!("TEE token is not a JSON object: {e}")))?;
+        .map_err(|e| Error(format!("TEE token is not a JSON object: {e}")))?;
     let token = std::str::from_utf8(token).expect("ASCII is UTF-8");
     Ok(format!(
         r#"{{"format":"{TEE_FORMAT}","device_id":"{device_id}","ts":{ts},"nonce":"{nonce}","token":{token}}}"#
@@ -40,7 +39,7 @@ pub fn without_terminators(token: &[u8]) -> &[u8] {
 }
 
 /// The compressed SEC1 public key the token was signed with, as enrolled with the webhook.
-pub fn tee_public_key(token: &[u8]) -> Result<String, AttestError> {
+pub fn tee_public_key(token: &[u8]) -> Result<String, Error> {
     #[derive(Deserialize)]
     struct Token {
         public_key: PublicKey,
@@ -50,7 +49,7 @@ pub fn tee_public_key(token: &[u8]) -> Result<String, AttestError> {
         compressed: String,
     }
     let token: Token =
-        serde_json::from_slice(without_terminators(token)).map_err(|e| AttestError(format!("TEE token has no public key: {e}")))?;
+        serde_json::from_slice(without_terminators(token)).map_err(|e| Error(format!("TEE token has no public key: {e}")))?;
     Ok(token.public_key.compressed)
 }
 

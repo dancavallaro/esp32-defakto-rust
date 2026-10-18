@@ -3,7 +3,7 @@
 
 use anyhow::{bail, ensure, Result};
 use defakto::attest::{AttestError, Attestor, HmacAttestor, HmacKey, TeeAttestor, TeeTokenSource};
-use defakto::tee_evidence::tee_public_key;
+use esp_attest::tee::tee_public_key;
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 use esp_idf_svc::sys::{self, esp_err_t, EspError};
 use log::info;

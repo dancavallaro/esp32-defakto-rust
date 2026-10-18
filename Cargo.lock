@@ -351,10 +351,10 @@ name = "defakto"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "esp-attest",
  "form_urlencoded",
  "hex",
  "hmac",
- "p256",
  "prost",
  "serde",
  "serde_json",
@@ -382,6 +382,7 @@ dependencies = [
  "defakto",
  "demo",
  "dotenvy",
+ "esp-attest",
  "getrandom",
  "qr2term",
  "serde_json",
@@ -507,6 +508,19 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "esp-attest"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "hmac",
+ "p256",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
