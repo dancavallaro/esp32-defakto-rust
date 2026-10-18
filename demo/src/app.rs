@@ -34,6 +34,8 @@ pub struct Status {
     pub wifi: bool,
     pub svid: bool,
     pub attestor: String,
+    /// A long press is re-attesting with the next attestor.
+    pub switching: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +48,8 @@ pub enum Event {
     SignedIn,
     SvidReady,
     Exchanged(DisplayClaims),
+    /// The sign-in code expired before anyone used it.
+    Expired,
     Failed(String),
 }
 
@@ -74,12 +78,16 @@ impl App {
         if let Event::AttestorChanged { label, svid } = ev {
             self.status.attestor = label;
             self.status.svid = svid;
+            self.status.switching = false;
             return Command::None;
         }
         let in_flight = matches!(self.screen, Starting | Qr { .. } | Progress(_));
         let (next, cmd) = match (&self.screen, ev) {
             (Idle, Event::Tap) => (Starting, Command::StartLogin),
-            (Idle, Event::LongPress) => (Idle, Command::SwitchAttestor),
+            (Idle, Event::LongPress) if !self.status.switching => {
+                self.status.switching = true;
+                (Idle, Command::SwitchAttestor)
+            }
             (Qr { .. }, Event::Tap) => (Idle, Command::Cancel),
             (Result(_) | Error(_), Event::Tap) => (Idle, Command::None),
             (Starting, Event::LoginStarted { auth, now }) => (
@@ -106,6 +114,9 @@ impl App {
                 Command::None,
             ),
             (Progress(_), Event::Exchanged(claims)) => (Result(claims), Command::None),
+            (Qr { .. }, Event::Expired) => (Idle, Command::None),
+            // A login nobody is looking at, e.g. one queued behind a cancelled run.
+            (Idle | Result(_) | Error(_), Event::LoginStarted { .. }) => return Command::Cancel,
             (_, Event::Failed(msg)) if in_flight => (Error(msg), Command::None),
             _ => return Command::None,
         };
@@ -243,6 +254,35 @@ mod tests {
     }
 
     #[test]
+    fn a_login_start_with_no_login_showing_is_cancelled() {
+        for screen in [Screen::Idle, Screen::Error("x".into()), Screen::Result(claims())] {
+            let mut app = App::new(Status::default());
+            app.screen = screen.clone();
+            assert_eq!(app.handle(started()), Command::Cancel);
+            assert_eq!(app.screen, screen);
+        }
+    }
+
+    #[test]
+    fn expiry_returns_to_idle() {
+        let mut app = App::new(Status::default());
+        app.handle(Event::Tap);
+        app.handle(started());
+        assert_eq!(app.handle(Event::Expired), Command::None);
+        assert_eq!(app.screen, Screen::Idle);
+    }
+
+    #[test]
+    fn switching_shows_until_the_new_attestor_lands() {
+        let mut app = App::new(Status { wifi: true, svid: true, attestor: "eFuse HMAC".into(), switching: false });
+        app.handle(Event::LongPress);
+        assert!(app.status.switching);
+        assert_eq!(app.handle(Event::LongPress), Command::None, "a second press mid-switch");
+        app.handle(Event::AttestorChanged { label: "ESP-TEE".into(), svid: true });
+        assert_eq!(app.status, Status { wifi: true, svid: true, attestor: "ESP-TEE".into(), switching: false });
+    }
+
+    #[test]
     fn long_press_on_idle_switches() {
         let mut app = App::new(Status::default());
         assert_eq!(app.handle(Event::LongPress), Command::SwitchAttestor);
@@ -260,9 +300,9 @@ mod tests {
 
     #[test]
     fn attestor_changed_updates_status() {
-        let mut app = App::new(Status { wifi: true, svid: true, attestor: "eFuse HMAC".into() });
+        let mut app = App::new(Status { wifi: true, svid: true, attestor: "eFuse HMAC".into(), switching: false });
         assert_eq!(app.handle(Event::AttestorChanged { label: "ESP-TEE".into(), svid: false }), Command::None);
-        assert_eq!(app.status, Status { wifi: true, svid: false, attestor: "ESP-TEE".into() });
+        assert_eq!(app.status, Status { wifi: true, svid: false, attestor: "ESP-TEE".into(), switching: false });
         assert_eq!(app.screen, Screen::Idle);
     }
 }

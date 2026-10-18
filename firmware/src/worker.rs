@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use defakto::attest::Attestor;
 use demo::app::{Command, Event};
-use demo::flow::{self, Clock, Config, FlowError};
+use demo::flow::{self, Clock, Config};
 
 use log::{info, warn};
 
@@ -66,20 +66,28 @@ fn run(
         match cmd {
             Command::StartLogin => {
                 cancel.store(false, Ordering::SeqCst);
-                match login(&cfg, active.attestor.as_ref(), &events, &cancel) {
-                    Ok(()) | Err(FlowError::Cancelled) => {}
-                    Err(e) => {
-                        let _ = events.send(Event::Failed(e.to_string()));
-                    }
-                }
+                flow::run_login(
+                    &mut EspClient,
+                    &cfg,
+                    active.attestor.as_ref(),
+                    &mut EspClock,
+                    &nonce(),
+                    &|| cancel.load(Ordering::SeqCst),
+                    &mut |ev| {
+                        let _ = events.send(ev);
+                    },
+                );
+                info!("free heap {} B after sign-in, low-water {} B", crate::free_heap(), crate::min_free_heap());
             }
-            Command::SwitchAttestor => match switch(&cfg, &attestors, &mut active) {
-                Ok(svid) => {
-                    let label = active.attestor.label().to_owned();
-                    let _ = events.send(Event::AttestorChanged { label, svid });
-                }
-                Err(e) => warn!("switching attestor failed: {e:#}"),
-            },
+            Command::SwitchAttestor => {
+                // Always answer, or the screen would show the switch running forever.
+                let svid = switch(&cfg, &attestors, &mut active).unwrap_or_else(|e| {
+                    warn!("switching attestor failed: {e:#}");
+                    false
+                });
+                let label = active.attestor.label().to_owned();
+                let _ = events.send(Event::AttestorChanged { label, svid });
+            }
             Command::None | Command::Cancel => {}
         }
     }
@@ -102,20 +110,6 @@ fn switch(cfg: &Config, attestors: &Attestors, active: &mut Active) -> anyhow::R
             Ok(false)
         }
     }
-}
-
-fn login(cfg: &Config, attestor: &dyn Attestor, events: &Sender<Event>, cancel: &AtomicBool) -> Result<(), FlowError> {
-    let http = &mut EspClient;
-    let auth = flow::start_login(http, cfg)?;
-    let _ = events.send(Event::LoginStarted { auth: auth.clone(), now: EspClock.unix_now() });
-    let id_token = flow::wait_for_id_token(http, cfg, &auth, &mut EspClock, &|| cancel.load(Ordering::SeqCst))?;
-    let _ = events.send(Event::SignedIn);
-    let svid = flow::fetch_svid(http, cfg, attestor, EspClock.unix_now(), &nonce())?;
-    let _ = events.send(Event::SvidReady);
-    let claims = flow::exchange(http, cfg, &id_token, &svid)?;
-    let _ = events.send(Event::Exchanged(claims));
-    info!("free heap {} B after sign-in, low-water {} B", crate::free_heap(), crate::min_free_heap());
-    Ok(())
 }
 
 /// Only random once the radio is on, which it is by the time anything attests.

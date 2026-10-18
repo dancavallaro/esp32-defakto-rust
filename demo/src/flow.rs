@@ -10,6 +10,7 @@ use defakto::oauth::{OAuthError, FORM_CONTENT_TYPE};
 use defakto::serverless::{self, SvidToken};
 use defakto::token_exchange;
 
+use crate::app::Event;
 use crate::claims::DisplayClaims;
 use crate::login::{self, DeviceAuthorization, PollOutcome};
 
@@ -19,6 +20,10 @@ pub const LOGIN_SCOPE: &str = "openid profile email";
 
 const DEFAULT_POLL_INTERVAL: u64 = 5;
 const SLOW_DOWN_STEP: Duration = Duration::from_secs(5);
+/// Polls run for minutes over flaky WiFi, so one dropped request shouldn't end the sign-in.
+const MAX_POLL_FAILURES: u32 = 3;
+/// How often a wait between polls checks for cancellation, so a re-tap isn't held up.
+const CANCEL_CHECK: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -88,20 +93,30 @@ pub fn wait_for_id_token(
     let body = login::device_token_form(&cfg.login_client_id, &auth.device_code);
     let deadline = clock.unix_now() + auth.expires_in as i64;
     let mut interval = Duration::from_secs(auth.interval.unwrap_or(DEFAULT_POLL_INTERVAL));
+    let mut failures = 0;
 
     loop {
         let remaining = deadline - clock.unix_now();
         if remaining <= 0 {
             return Err(FlowError::Expired);
         }
-        if cancelled() {
+        if sleep_unless_cancelled(clock, interval.min(Duration::from_secs(remaining as u64)), cancelled) {
             return Err(FlowError::Cancelled);
         }
-        clock.sleep(interval.min(Duration::from_secs(remaining as u64)));
-        if cancelled() {
-            return Err(FlowError::Cancelled);
-        }
-        let resp = http.post(&cfg.login_token_url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+        let resp = match http.post(&cfg.login_token_url, FORM_CONTENT_TYPE, body.as_bytes(), &[]) {
+            Ok(resp) if resp.status < 500 => resp,
+            failed => {
+                failures += 1;
+                if failures < MAX_POLL_FAILURES {
+                    continue;
+                }
+                return Err(match failed {
+                    Err(e) => e.into(),
+                    Ok(resp) => OAuthError::Malformed(format!("HTTP {}", resp.status)).into(),
+                });
+            }
+        };
+        failures = 0;
         match login::parse_poll(&resp)? {
             PollOutcome::Pending => {}
             PollOutcome::SlowDown => interval += SLOW_DOWN_STEP,
@@ -110,6 +125,63 @@ pub fn wait_for_id_token(
             PollOutcome::Denied => return Err(FlowError::Denied),
         }
     }
+}
+
+/// Runs a whole sign-in, reporting its progress through `report`. Once
+/// `cancelled` turns true nothing more is reported, so a late failure from a
+/// cancelled run can't land on the next one.
+pub fn run_login(
+    http: &mut impl HttpClient,
+    cfg: &Config,
+    attestor: &dyn Attestor,
+    clock: &mut dyn Clock,
+    nonce: &str,
+    cancelled: &dyn Fn() -> bool,
+    report: &mut dyn FnMut(Event),
+) {
+    let mut report = |ev| {
+        if !cancelled() {
+            report(ev)
+        }
+    };
+    match login(http, cfg, attestor, clock, nonce, cancelled, &mut report) {
+        Ok(()) | Err(FlowError::Cancelled) => {}
+        Err(FlowError::Expired) => report(Event::Expired),
+        Err(e) => report(Event::Failed(e.to_string())),
+    }
+}
+
+fn login(
+    http: &mut impl HttpClient,
+    cfg: &Config,
+    attestor: &dyn Attestor,
+    clock: &mut dyn Clock,
+    nonce: &str,
+    cancelled: &dyn Fn() -> bool,
+    report: &mut dyn FnMut(Event),
+) -> Result<(), FlowError> {
+    let auth = start_login(http, cfg)?;
+    report(Event::LoginStarted { auth: auth.clone(), now: clock.unix_now() });
+    let id_token = wait_for_id_token(http, cfg, &auth, clock, cancelled)?;
+    report(Event::SignedIn);
+    let svid = fetch_svid(http, cfg, attestor, clock.unix_now(), nonce)?;
+    report(Event::SvidReady);
+    report(Event::Exchanged(exchange(http, cfg, &id_token, &svid)?));
+    Ok(())
+}
+
+/// Returns true, having slept less than `d`, if `cancelled` turns true.
+fn sleep_unless_cancelled(clock: &mut dyn Clock, d: Duration, cancelled: &dyn Fn() -> bool) -> bool {
+    let mut left = d;
+    while !left.is_zero() {
+        if cancelled() {
+            return true;
+        }
+        let nap = left.min(CANCEL_CHECK);
+        clock.sleep(nap);
+        left -= nap;
+    }
+    cancelled()
 }
 
 pub fn exchange(
@@ -140,23 +212,41 @@ pub fn exchange_token(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use defakto::testing::{make_jwt, FakeHttp};
 
     use super::*;
     use crate::claims::fixtures::alice_obo;
 
+    /// Sums the sleeps between consecutive posts, so tests see one wait per poll.
     struct FakeClock {
-        now: i64,
-        slept: Vec<Duration>,
+        elapsed: Duration,
+        waits: Vec<(usize, Duration)>,
+        posts: Rc<Cell<usize>>,
+    }
+
+    impl FakeClock {
+        fn new(http: &FakeHttp) -> Self {
+            Self { elapsed: Duration::ZERO, waits: vec![], posts: http.posts.clone() }
+        }
+
+        fn waits(&self) -> Vec<u64> {
+            self.waits.iter().map(|(_, d)| d.as_secs()).collect()
+        }
     }
 
     impl Clock for FakeClock {
         fn unix_now(&self) -> i64 {
-            self.now
+            NOW + self.elapsed.as_secs() as i64
         }
         fn sleep(&mut self, d: Duration) {
-            self.now += d.as_secs() as i64;
-            self.slept.push(d);
+            self.elapsed += d;
+            match self.waits.last_mut() {
+                Some((posts, total)) if *posts == self.posts.get() => *total += d,
+                _ => self.waits.push((self.posts.get(), d)),
+            }
         }
     }
 
@@ -206,13 +296,12 @@ mod tests {
             .reply(403, pending())
             .reply(429, r#"{"error":"slow_down"}"#)
             .reply(200, r#"{"id_token":"t"}"#);
-        let mut clock = FakeClock { now: NOW, slept: vec![] };
+        let mut clock = FakeClock::new(&http);
 
         let token = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| false);
 
         assert_eq!(token, Ok("t".into()));
-        let secs: Vec<u64> = clock.slept.iter().map(Duration::as_secs).collect();
-        assert_eq!(secs, [5, 5, 10]);
+        assert_eq!(clock.waits(), [5, 5, 10]);
         for req in &http.requests {
             assert_eq!(req.url, "https://idp.example/token");
             assert_eq!(req.body, login::device_token_form("cid", "dc").into_bytes());
@@ -222,20 +311,20 @@ mod tests {
     #[test]
     fn wait_expires_after_deadline() {
         let mut http = FakeHttp::default().reply(403, pending()).reply(403, pending()).reply(403, pending());
-        let mut clock = FakeClock { now: NOW, slept: vec![] };
+        let mut clock = FakeClock::new(&http);
 
         let result = wait_for_id_token(&mut http, &cfg(), &auth(12, Some(5)), &mut clock, &|| false);
 
         assert_eq!(result, Err(FlowError::Expired));
         assert!(http.requests.len() <= 3);
-        assert!(clock.now <= NOW + 12, "slept past the deadline");
+        assert!(clock.unix_now() <= NOW + 12, "slept past the deadline");
     }
 
     #[test]
     fn wait_honours_cancel() {
         let mut http = FakeHttp::default().reply(403, pending()).reply(403, pending());
         let posts = http.posts.clone();
-        let mut clock = FakeClock { now: NOW, slept: vec![] };
+        let mut clock = FakeClock::new(&http);
 
         let result = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| posts.get() >= 1);
 
@@ -244,9 +333,106 @@ mod tests {
     }
 
     #[test]
+    fn cancel_cuts_the_wait_between_polls_short() {
+        let mut http = FakeHttp::default();
+        let mut clock = FakeClock::new(&http);
+        let checks = Cell::new(0);
+        let cancel_on_third_check = || {
+            checks.set(checks.get() + 1);
+            checks.get() >= 3
+        };
+
+        let result = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &cancel_on_third_check);
+
+        assert_eq!(result, Err(FlowError::Cancelled));
+        assert!(http.requests.is_empty());
+        assert!(clock.elapsed < Duration::from_secs(1), "waited {:?} after the cancel", clock.elapsed);
+    }
+
+    #[test]
+    fn wait_rides_out_transient_poll_failures() {
+        let mut http = FakeHttp::default()
+            .fail("timeout")
+            .reply(502, "<html>Bad Gateway</html>")
+            .reply(200, r#"{"id_token":"t"}"#);
+        let mut clock = FakeClock::new(&http);
+
+        let token = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| false);
+
+        assert_eq!(token, Ok("t".into()));
+    }
+
+    #[test]
+    fn wait_gives_up_after_repeated_poll_failures() {
+        let mut http = FakeHttp::default().fail("timeout").fail("timeout").fail("timeout");
+        let mut clock = FakeClock::new(&http);
+
+        let result = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| false);
+
+        assert_eq!(result, Err(FlowError::Http(HttpError("timeout".into()))));
+        assert_eq!(http.requests.len(), 3);
+    }
+
+    #[test]
+    fn a_good_poll_resets_the_failure_count() {
+        let mut http = FakeHttp::default()
+            .fail("timeout")
+            .fail("timeout")
+            .reply(403, pending())
+            .fail("timeout")
+            .fail("timeout")
+            .reply(200, r#"{"id_token":"t"}"#);
+        let mut clock = FakeClock::new(&http);
+
+        let token = wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| false);
+
+        assert_eq!(token, Ok("t".into()));
+    }
+
+    fn device_code(expires_in: u64) -> String {
+        format!(r#"{{"device_code":"dc","user_code":"U","verification_uri":"https://t/a","expires_in":{expires_in},"interval":5}}"#)
+    }
+
+    fn attestor() -> impl Attestor {
+        defakto::attest::HmacAttestor::new(
+            "defakto-demo".into(),
+            defakto::attest::SoftwareHmacKey(vec![0; 32]),
+            "software HMAC",
+        )
+    }
+
+    fn run(http: &mut FakeHttp, cancelled: &dyn Fn() -> bool) -> Vec<Event> {
+        let mut clock = FakeClock::new(http);
+        let mut events = vec![];
+        run_login(http, &cfg(), &attestor(), &mut clock, "00", cancelled, &mut |ev| events.push(ev));
+        events
+    }
+
+    #[test]
+    fn run_login_reports_a_failure() {
+        let mut http = FakeHttp::default().fail("timeout");
+        assert_eq!(run(&mut http, &|| false), [Event::Failed("network: timeout".into())]);
+    }
+
+    #[test]
+    fn run_login_reports_expiry() {
+        let mut http = FakeHttp::default().reply(200, device_code(6)).reply(403, pending()).reply(403, pending());
+        let events = run(&mut http, &|| false);
+        assert!(matches!(events[..], [Event::LoginStarted { .. }, Event::Expired]), "{events:?}");
+    }
+
+    #[test]
+    fn run_login_reports_nothing_once_cancelled() {
+        let mut http = FakeHttp::default().reply(200, device_code(900)).reply(400, r#"{"error":"invalid_grant"}"#);
+        let posts = http.posts.clone();
+        let events = run(&mut http, &|| posts.get() >= 2);
+        assert!(matches!(events[..], [Event::LoginStarted { .. }]), "{events:?}");
+    }
+
+    #[test]
     fn denied_maps_to_denied() {
         let mut http = FakeHttp::default().reply(403, r#"{"error":"access_denied"}"#);
-        let mut clock = FakeClock { now: NOW, slept: vec![] };
+        let mut clock = FakeClock::new(&http);
         assert_eq!(
             wait_for_id_token(&mut http, &cfg(), &auth(900, None), &mut clock, &|| false),
             Err(FlowError::Denied)
