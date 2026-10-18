@@ -8,9 +8,17 @@ description = "An ESP32 extension attestor for Defakto"
 [dependencies]
 esp-attest = { path = "../esp-attest", features = ["verify"] }
 anyhow = "1"
+axum = "0.8"
+# Ring rather than aws-lc-rs, so the image cross-compiles without cmake or clang.
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }
 
 [dev-dependencies]
 esp-attest = { path = "../esp-attest", features = ["testing"] }
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
