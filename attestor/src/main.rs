@@ -6,9 +6,14 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 use clap::{Args, Parser, Subcommand};
+use hyper_util::rt::TokioTimer;
+use tokio::signal::unix::{signal, SignalKind};
+use esp32_attestor::detect_timeout::DetectTimeout;
 use esp32_attestor::reload::{self, FileWatcher};
 use esp32_attestor::verifier::Verifier;
 use esp32_attestor::{enroll, enrollment, webhook};
+
+const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The Defakto serverless attestation extension webhook for ESP32 devices.
 #[derive(Parser)]
@@ -108,8 +113,31 @@ async fn serve(args: ServeArgs) -> Result<()> {
     ));
 
     println!("serving attestation webhook on {}", args.listen);
-    axum_server::bind_rustls(args.listen, tls)
+    let handle = axum_server::Handle::new();
+    tokio::spawn(shutdown_on_signal(handle.clone()));
+
+    let mut server = axum_server::bind_rustls(args.listen, tls)
+        .map(|acceptor| DetectTimeout::new(acceptor, HEADER_READ_TIMEOUT))
+        .handle(handle);
+    // hyper has no timers unless given one; without them a client can hold a connection open forever.
+    // DetectTimeout covers protocol detection, which runs before either timer starts.
+    let builder = server.http_builder();
+    builder.http1().timer(TokioTimer::new()).header_read_timeout(HEADER_READ_TIMEOUT);
+    builder.http2().timer(TokioTimer::new()).keep_alive_interval(HEADER_READ_TIMEOUT);
+    server
         .serve(webhook::router(verifier).into_make_service())
         .await
         .with_context(|| format!("serving on {}", args.listen))
+}
+
+/// As PID 1 in a container the process gets no default SIGTERM handling, so kubelet would
+/// otherwise wait out the whole grace period on every rollout.
+async fn shutdown_on_signal(handle: axum_server::Handle) {
+    let mut sigterm = signal(SignalKind::terminate()).expect("installing the SIGTERM handler");
+    tokio::select! {
+        _ = sigterm.recv() => {}
+        _ = tokio::signal::ctrl_c() => {}
+    }
+    println!("shutting down");
+    handle.graceful_shutdown(Some(Duration::from_secs(10)));
 }
