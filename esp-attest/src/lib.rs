@@ -3,6 +3,8 @@
 //! binds it to the same fields. Pure formats, with no transport and no hardware.
 
 mod device_id;
+#[cfg(feature = "verify")]
+pub mod evidence;
 pub mod hmac;
 pub mod tee;
 
