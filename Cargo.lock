@@ -386,6 +386,7 @@ dependencies = [
  "form_urlencoded",
  "hmac",
  "prost",
+ "rsa",
  "serde",
  "serde_json",
  "sha2",

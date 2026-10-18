@@ -2,11 +2,15 @@
 //! from `cfg.toml` (see `cfg.toml.example`), which may be left empty.
 
 use anyhow::Result;
-use demo::setup::Settings;
+use demo::setup::{self, DevIdGate, Settings};
 use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs, NvsDefault};
 
 const NAMESPACE: &str = "demo";
-const KEY: &str = "settings";
+const SETTINGS: &str = "settings";
+/// Settings the wizard saved with a DevID the device hasn't verified yet.
+const PENDING: &str = "pending";
+/// Why the last settings were refused, for the wizard to show.
+const PROBLEM: &str = "problem";
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -38,6 +42,18 @@ pub struct Config {
     /// The eFuse key block (0 to 5) holding the device secret for `efuse`.
     #[default(5)]
     efuse_hmac_key: u8,
+    /// The issuer of the DevIDs that may set up the device; empty for none,
+    /// which leaves the wizard open to anyone who can read its password.
+    #[default("")]
+    devid_issuer: &'static str,
+    /// The SPIFFE ID prefix those DevIDs must have.
+    #[default("")]
+    devid_subjects: &'static str,
+}
+
+pub fn devid_gate() -> Option<DevIdGate> {
+    (!CONFIG.devid_issuer.is_empty())
+        .then(|| DevIdGate { issuer: CONFIG.devid_issuer.into(), subjects: CONFIG.devid_subjects.into() })
 }
 
 fn defaults() -> Settings {
@@ -57,20 +73,55 @@ fn defaults() -> Settings {
 }
 
 pub fn load(nvs: &EspDefaultNvsPartition) -> Settings {
-    let read = || -> Result<Option<String>> {
-        let store: EspNvs<NvsDefault> = EspNvs::new(nvs.clone(), NAMESPACE, false)?;
-        let Some(len) = store.str_len(KEY)? else { return Ok(None) };
-        let mut buf = vec![0u8; len];
-        Ok(store.get_str(KEY, &mut buf)?.map(str::to_owned))
-    };
-    match read() {
-        Ok(Some(saved)) => defaults().overlaid(&saved),
-        _ => defaults(),
+    match read(nvs, SETTINGS) {
+        Some(saved) => defaults().overlaid(&saved),
+        None => defaults(),
     }
 }
 
 pub fn save(nvs: &EspDefaultNvsPartition, settings: &Settings) -> Result<()> {
+    write(nvs, SETTINGS, &settings.to_form())
+}
+
+pub fn save_pending(nvs: &EspDefaultNvsPartition, settings: &Settings, devid: &str) -> Result<()> {
+    write(nvs, PENDING, &setup::pending_form(settings, devid))
+}
+
+/// Pending settings and their DevID, removed from NVS: whether they're taken
+/// or refused, they're only tried once.
+pub fn take_pending(nvs: &EspDefaultNvsPartition) -> Option<(Settings, String)> {
+    let form = take(nvs, PENDING)?;
+    Some((load(nvs).overlaid(&form), setup::pending_token(&form).unwrap_or_default()))
+}
+
+pub fn save_problem(nvs: &EspDefaultNvsPartition, problem: &str) -> Result<()> {
+    write(nvs, PROBLEM, problem)
+}
+
+pub fn take_problem(nvs: &EspDefaultNvsPartition) -> Option<String> {
+    take(nvs, PROBLEM)
+}
+
+fn read(nvs: &EspDefaultNvsPartition, key: &str) -> Option<String> {
+    let read = || -> Result<Option<String>> {
+        let store: EspNvs<NvsDefault> = EspNvs::new(nvs.clone(), NAMESPACE, false)?;
+        let Some(len) = store.str_len(key)? else { return Ok(None) };
+        let mut buf = vec![0u8; len];
+        Ok(store.get_str(key, &mut buf)?.map(str::to_owned))
+    };
+    read().ok().flatten()
+}
+
+fn write(nvs: &EspDefaultNvsPartition, key: &str, value: &str) -> Result<()> {
     let store: EspNvs<NvsDefault> = EspNvs::new(nvs.clone(), NAMESPACE, true)?;
-    store.set_str(KEY, &settings.to_form())?;
+    store.set_str(key, value)?;
     Ok(())
+}
+
+fn take(nvs: &EspDefaultNvsPartition, key: &str) -> Option<String> {
+    let value = read(nvs, key)?;
+    if let Err(e) = EspNvs::<NvsDefault>::new(nvs.clone(), NAMESPACE, true).and_then(|store| store.remove(key)) {
+        log::warn!("removing {key} from NVS failed: {e}");
+    }
+    Some(value)
 }

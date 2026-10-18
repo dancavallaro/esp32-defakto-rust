@@ -35,4 +35,7 @@ pub trait HttpClient {
         body: &[u8],
         read_headers: &[&str],
     ) -> Result<HttpResponse, HttpError>;
+
+    /// Like `post`, for a GET without headers.
+    fn get(&mut self, url: &str) -> Result<HttpResponse, HttpError>;
 }

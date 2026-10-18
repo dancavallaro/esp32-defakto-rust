@@ -9,6 +9,8 @@ pub mod jwt;
 pub mod oauth;
 pub mod serverless;
 pub mod token_exchange;
+#[cfg(feature = "verify")]
+pub mod verify;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;

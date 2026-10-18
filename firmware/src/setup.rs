@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use demo::captive;
-use demo::setup::{self, Settings};
+use demo::setup::{self, DevIdGate, Settings};
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::modem::Modem;
 use esp_idf_svc::http::server::{self as http, EspHttpConnection, EspHttpServer, Request};
@@ -38,13 +38,22 @@ pub struct Portal {
     _server: EspHttpServer<'static>,
 }
 
-/// Starts the wizard, editing `current`. The receiver fires once new settings
-/// are saved, when the device should restart.
+/// What the portal edits and how it guards saving.
+pub struct Wizard {
+    pub current: Settings,
+    /// Asks for a DevID, which the device checks once it's online.
+    pub gate: Option<DevIdGate>,
+    /// Why the last settings were refused, shown until the next submission.
+    pub problem: Option<String>,
+}
+
+/// Starts the wizard. The receiver fires once new settings are saved, when
+/// the device should restart.
 pub fn start(
     modem: Modem<'static>,
     sysloop: EspSystemEventLoop,
     nvs: EspDefaultNvsPartition,
-    current: Settings,
+    wizard: Wizard,
 ) -> Result<(Portal, Receiver<()>)> {
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sysloop.clone(), Some(nvs.clone()))?, sysloop)?;
     // Scanning first gives the form its list of networks, and the password is
@@ -71,7 +80,7 @@ pub fn start(
 
     std::thread::Builder::new().name("dns".into()).stack_size(DNS_STACK).spawn(move || serve_dns(ip))?;
     let (saved_tx, saved) = mpsc::channel();
-    let server = serve_portal(ip, nvs, current, networks, saved_tx)?;
+    let server = serve_portal(ip, nvs, wizard, networks, saved_tx)?;
     let url = format!("http://{ip}");
     Ok((Portal { ssid, password, url, _wifi: wifi, _server: server }, saved))
 }
@@ -120,7 +129,7 @@ fn serve_dns(ip: Ipv4Addr) {
 fn serve_portal(
     ip: Ipv4Addr,
     nvs: EspDefaultNvsPartition,
-    current: Settings,
+    Wizard { current, gate, problem }: Wizard,
     networks: Vec<String>,
     saved: mpsc::Sender<()>,
 ) -> Result<EspHttpServer<'static>> {
@@ -132,11 +141,13 @@ fn serve_portal(
         ..Default::default()
     })?;
     let current = Arc::new(Mutex::new(current));
-    let networks = Arc::new(networks);
+    let problem = Arc::new(Mutex::new(problem));
+    let (networks, gate) = (Arc::new(networks), Arc::new(gate));
 
-    let (shown, offered) = (current.clone(), networks.clone());
+    let (shown, shown_problem, offered, asked) = (current.clone(), problem.clone(), networks.clone(), gate.clone());
     server.fn_handler::<anyhow::Error, _>("/", Method::Get, move |req| {
-        let html = setup::page(&shown.lock().unwrap(), &offered, None);
+        let problem = shown_problem.lock().unwrap();
+        let html = setup::page(&shown.lock().unwrap(), &offered, problem.as_deref(), asked.as_ref().as_ref());
         respond(req, 200, &html)
     })?;
 
@@ -144,19 +155,29 @@ fn serve_portal(
     server.fn_handler::<anyhow::Error, _>("/", Method::Post, move |mut req| {
         let form = read_form(&mut req)?;
         let mut current = current.lock().unwrap();
-        match current.submit(&form) {
-            Ok(next) => {
-                config::save(&nvs, &next).context("saving settings")?;
-                info!("settings saved");
+        *problem.lock().unwrap() = None;
+        let gate = gate.as_ref().as_ref();
+        let submitted = current.submit(&form).and_then(|next| match gate {
+            Some(gate) => gate.precheck(&form, &next.device_id).map(|devid| (next, Some(devid))),
+            None => Ok((next, None)),
+        });
+        match submitted {
+            Ok((next, devid)) => {
+                match &devid {
+                    Some(devid) => config::save_pending(&nvs, &next, devid),
+                    None => config::save(&nvs, &next),
+                }
+                .context("saving settings")?;
+                info!("settings saved{}", if devid.is_some() { ", pending their DevID" } else { "" });
                 *current = next;
-                respond(req, 200, &setup::saved_page())?;
+                respond(req, 200, &setup::saved_page(devid.is_some()))?;
                 let _ = saved.lock().unwrap().send(());
                 Ok(())
             }
             Err(problem) => {
                 // What they typed, minus the password, which the page never shows.
                 let typed = Settings { wifi_psk: current.wifi_psk.clone(), ..current.overlaid(&form) };
-                respond(req, 400, &setup::page(&typed, &networks, Some(&problem)))
+                respond(req, 400, &setup::page(&typed, &networks, Some(&problem), gate))
             }
         }
     })?;

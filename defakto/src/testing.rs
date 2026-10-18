@@ -60,6 +60,17 @@ impl HttpClient for FakeHttp {
         });
         self.replies.pop_front().expect("unexpected request")
     }
+
+    fn get(&mut self, url: &str) -> Result<HttpResponse, HttpError> {
+        self.requests.push(Request {
+            url: url.into(),
+            content_type: String::new(),
+            headers: vec![],
+            body: vec![],
+            read_headers: vec![],
+        });
+        self.replies.pop_front().expect("unexpected request")
+    }
 }
 
 /// A successful gRPC-web reply to `FetchJWTSVID`, carrying one SVID.

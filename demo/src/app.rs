@@ -33,6 +33,16 @@ pub enum Screen {
     Setup { ssid: String, password: String, portal: String },
     /// The wizard saved new settings and the device is restarting.
     Restarting,
+    /// The device is checking the DevID that came with new settings.
+    Provisioning(Provisioning),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Provisioning {
+    Checking,
+    /// Taken, from the developer with this SPIFFE ID.
+    Configured(String),
+    Refused(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

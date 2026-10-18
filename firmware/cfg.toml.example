@@ -20,3 +20,8 @@ svid_audience = ""
 # obo_audience = "defakto-demo"
 # default_attestor = "efuse" # or "tee"; a long press on idle switches, and the choice survives reboots
 # efuse_hmac_key = 5         # eFuse key block holding the secret for "efuse"
+# Build-time only: with these, saving settings in the wizard takes a Defakto
+# DevID JWT-SVID for the device ID, from a SPIFFE ID under devid_subjects. The
+# device verifies it once it has joined the new network, before using them.
+# devid_issuer = "https://fed.spirl.org/t-…/td-…"
+# devid_subjects = "spiffe://example.org/users/"

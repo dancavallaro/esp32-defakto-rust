@@ -1,7 +1,7 @@
 //! A serial-console stand-in for the display, for boards without one. Uses
 //! `println!` rather than `log` so log prefixes don't skew the QR code.
 
-use demo::app::{Screen, Status};
+use demo::app::{Provisioning, Screen, Status};
 use demo::setup::wifi_qr;
 use qrcodegen::{QrCode, QrCodeEcc};
 
@@ -38,6 +38,9 @@ pub fn render(screen: &Screen, status: &Status) {
             println!("Set up this device: scan, or join {ssid} with password {password}, then open {portal}.");
         }
         Screen::Restarting => println!("Saved. Restarting…"),
+        Screen::Provisioning(Provisioning::Checking) => println!("Checking the DevID that came with the new settings…"),
+        Screen::Provisioning(Provisioning::Configured(developer)) => println!("Set up by {developer}. Restarting…"),
+        Screen::Provisioning(Provisioning::Refused(why)) => println!("Settings refused: {why}. Restarting…"),
     }
 }
 

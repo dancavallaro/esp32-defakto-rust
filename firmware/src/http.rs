@@ -42,26 +42,36 @@ impl HttpClient for EspClient {
         conn.initiate_request(Method::Post, url, &all).map_err(err)?;
         conn.write_all(body).map_err(err)?;
         conn.initiate_response().map_err(err)?;
-
-        let status = conn.status();
-        let headers = read_headers
-            .iter()
-            .filter_map(|h| conn.header(h).map(|v| (h.to_string(), v.to_string())))
-            .collect();
-        let mut body = Vec::new();
-        let mut buf = [0u8; 1024];
-        loop {
-            let n = conn.read(&mut buf).map_err(err)?;
-            if n == 0 {
-                break;
-            }
-            if body.len() + n > MAX_BODY {
-                return Err(HttpError(format!("response over {MAX_BODY} bytes")));
-            }
-            body.extend_from_slice(&buf[..n]);
-        }
-        Ok(HttpResponse { status, headers, body })
+        read(conn, read_headers)
     }
+
+    fn get(&mut self, url: &str) -> Result<HttpResponse, HttpError> {
+        let mut conn = Self::connect()?;
+        conn.initiate_request(Method::Get, url, &[]).map_err(err)?;
+        conn.initiate_response().map_err(err)?;
+        read(conn, &[])
+    }
+}
+
+fn read(mut conn: EspHttpConnection, read_headers: &[&str]) -> Result<HttpResponse, HttpError> {
+    let status = conn.status();
+    let headers = read_headers
+        .iter()
+        .filter_map(|h| conn.header(h).map(|v| (h.to_string(), v.to_string())))
+        .collect();
+    let mut body = Vec::new();
+    let mut buf = [0u8; 1024];
+    loop {
+        let n = conn.read(&mut buf).map_err(err)?;
+        if n == 0 {
+            break;
+        }
+        if body.len() + n > MAX_BODY {
+            return Err(HttpError(format!("response over {MAX_BODY} bytes")));
+        }
+        body.extend_from_slice(&buf[..n]);
+    }
+    Ok(HttpResponse { status, headers, body })
 }
 
 fn err(e: impl std::fmt::Display) -> HttpError {

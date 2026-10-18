@@ -16,8 +16,9 @@ the OBO token to that check-in service as a bearer token, recording who checked 
 A Cargo workspace of six packages, plus the firmware as a separate project:
 
 - `defakto/`: the Defakto client. It covers the attestors (`attest`, over `esp-attest`'s evidence formats), the
-  serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`, `oauth`), and unverified JWT
-  decoding. This crate is the seed of a Rust libcommon, so keep it free of demo-specific code and of hardware.
+  serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`, `oauth`), unverified JWT
+  decoding, and, behind its `verify` feature, RS256 JWT-SVID verification against a trust domain's JWKS
+  (`verify`). This crate is the seed of a Rust libcommon, so keep it free of demo-specific code and of hardware.
   Anything a platform must supply goes behind a trait: `http::HttpClient` for transport, `attest::HmacKey` for the
   HMAC key, `attest::TeeTokenSource` for the TEE's tokens.
 - `esp-attest/`: the evidence formats the device signs and the attestor verifies (device IDs, HMAC evidence, the
@@ -49,6 +50,10 @@ A Cargo workspace of six packages, plus the firmware as a separate project:
   settings are incomplete, or when the screen or BOOT is held as the device boots: it starts an access point
   `defakto-setup-XXXX` with a random password, shows a QR code that joins it, and answers every DNS query with
   itself so the phone opens the portal. `demo::setup` and `demo::captive` hold its form, validation and DNS.
+  With `devid_issuer` and `devid_subjects` in `cfg.toml`, saving also takes a Defakto DevID JWT-SVID whose
+  audience is the device ID. The settings wait in NVS (key `pending`) until the next boot has joined their
+  network and verified the DevID, and are dropped if it fails, with the reason (key `problem`) shown by the
+  wizard.
   `display` drives the JD9853 panel one strip at a time (there's no RAM for a full framebuffer) and `ui` draws
   the screens. `console.rs` also prints
   each screen to serial (the QR code as text), and is the only output with `--features xiao`. `touch` polls the

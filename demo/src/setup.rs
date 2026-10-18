@@ -4,6 +4,10 @@
 
 use std::fmt::Write;
 
+use defakto::http::HttpClient;
+use defakto::jwt;
+use defakto::verify::{self, Expected};
+
 use crate::flow;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -169,6 +173,76 @@ impl Settings {
     }
 }
 
+/// The form field carrying the DevID JWT-SVID, when DevID guards the portal.
+pub const DEVID_FIELD: &str = "devid";
+
+/// Who may save settings when DevID guards the portal: developers whose DevID
+/// JWT-SVIDs `issuer` signs, with SPIFFE IDs under `subjects`. Their token's
+/// audience is the device ID being saved, so it's bound to that device.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DevIdGate {
+    pub issuer: String,
+    /// A SPIFFE ID prefix, such as `spiffe://example.org/users/`.
+    pub subjects: String,
+}
+
+impl DevIdGate {
+    pub fn trust_domain(&self) -> &str {
+        let rest = self.subjects.strip_prefix("spiffe://").unwrap_or(&self.subjects);
+        rest.split('/').next().unwrap_or_default()
+    }
+
+    /// The token in `form`, if it looks right for `audience`. Its signature is
+    /// checked once the device is online; this catches a wrong token first.
+    pub fn precheck(&self, form: &str, audience: &str) -> Result<String, String> {
+        let token = form_urlencoded::parse(form.as_bytes())
+            .find(|(k, _)| k == DEVID_FIELD)
+            .map(|(_, v)| v.trim().to_owned())
+            .filter(|t| !t.is_empty())
+            .ok_or("Paste a DevID JWT-SVID.")?;
+        let claims = jwt::decode_claims(&token).map_err(|_| "That isn't a JWT.")?;
+        let audiences = match &claims["aud"] {
+            serde_json::Value::Array(auds) => auds.iter().filter_map(|a| a.as_str()).collect(),
+            aud => aud.as_str().into_iter().collect::<Vec<_>>(),
+        };
+        if !audiences.contains(&audience) {
+            return Err(format!("The DevID's audience is {audiences:?}; fetch one for {audience:?}."));
+        }
+        self.allows(claims["sub"].as_str().unwrap_or_default())?;
+        Ok(token)
+    }
+
+    /// Verifies `token` against the trust domain's keys, returning the
+    /// developer's SPIFFE ID.
+    pub fn check(&self, http: &mut impl HttpClient, token: &str, audience: &str, now: i64) -> Result<String, String> {
+        let keys = verify::fetch_jwks(http, &self.issuer).map_err(|e| format!("fetching keys: {e}"))?;
+        let expected = Expected { issuer: &self.issuer, audience, now };
+        let verified = verify::verify_jwt_svid(token, &keys, &expected).map_err(|e| format!("DevID {e}"))?;
+        self.allows(&verified.subject)?;
+        Ok(verified.subject)
+    }
+
+    fn allows(&self, subject: &str) -> Result<(), String> {
+        if subject.starts_with(&self.subjects) {
+            Ok(())
+        } else {
+            Err(format!("{subject} can't set up this device."))
+        }
+    }
+}
+
+/// Settings waiting for their DevID to be verified, with the token, as kept in NVS.
+pub fn pending_form(settings: &Settings, token: &str) -> String {
+    let mut form = form_urlencoded::Serializer::new(settings.to_form());
+    form.append_pair(DEVID_FIELD, token);
+    form.finish()
+}
+
+/// The token in a `pending_form`; `Settings::overlaid` reads the rest.
+pub fn pending_token(form: &str) -> Option<String> {
+    form_urlencoded::parse(form.as_bytes()).find(|(k, _)| k == DEVID_FIELD).map(|(_, v)| v.into_owned())
+}
+
 /// The text of a QR code that joins a phone to the network, as iOS and
 /// Android cameras read it.
 pub fn wifi_qr(ssid: &str, psk: &str) -> String {
@@ -197,13 +271,16 @@ const STYLE: &str = "body{font:16px system-ui,sans-serif;background:#0c0816;colo
 max-width:32rem;padding:1rem}h1{font-size:1.4rem}h2{font-size:1rem;color:#a07cff;margin:1.5rem 0 .5rem}\
 label{display:block;margin:.75rem 0 .25rem}input{box-sizing:border-box;width:100%;padding:.6rem;\
 font:inherit;border:1px solid #2a2140;border-radius:6px;background:#160f26;color:inherit}\
-small{color:#7d7690}summary{margin-top:1rem;color:#7d7690}.err{background:#4a2a10;color:#ffcf5c;\
+small{color:#7d7690}code{word-break:break-all;color:#e9e4f5}textarea{box-sizing:border-box;width:100%;\
+padding:.6rem;font:12px ui-monospace,monospace;border:1px solid #2a2140;border-radius:6px;background:#160f26;\
+color:inherit}summary{margin-top:1rem;color:#7d7690}.err{background:#4a2a10;color:#ffcf5c;\
 padding:.75rem;border-radius:6px}button{margin-top:1.5rem;width:100%;padding:.8rem;font:inherit;\
 font-weight:600;border:0;border-radius:6px;background:#a07cff;color:#0c0816}";
 
 /// The portal's form, filled in from `current`. `networks` are offered for
-/// the WiFi network, and `error` is why the last submission was refused.
-pub fn page(current: &Settings, networks: &[String], error: Option<&str>) -> String {
+/// the WiFi network, `error` is why the last submission was refused, and
+/// `gate` asks for a DevID.
+pub fn page(current: &Settings, networks: &[String], error: Option<&str>, gate: Option<&DevIdGate>) -> String {
     let mut html = head("Set up");
     html.push_str("<h1>Set up this device</h1>");
     if let Some(error) = error {
@@ -228,6 +305,9 @@ pub fn page(current: &Settings, networks: &[String], error: Option<&str>) -> Str
     }
     if folded {
         html.push_str("</details>");
+    }
+    if let Some(gate) = gate {
+        devid_input(&mut html, gate, &current.device_id);
     }
     html.push_str("<datalist id=networks>");
     for n in networks {
@@ -260,10 +340,28 @@ fn input(html: &mut String, f: &Field, current: &Settings) {
     }
 }
 
-/// What the portal shows once the settings are saved.
-pub fn saved_page() -> String {
-    head("Saved") + "<h1>Saved</h1><p>The device is restarting with the new settings. \
-     You can leave this network.</p></body></html>"
+fn devid_input(html: &mut String, gate: &DevIdGate, device_id: &str) {
+    let td = escape(gate.trust_domain());
+    let _ = write!(
+        html,
+        "<h2>DevID</h2><label for={DEVID_FIELD}>DevID JWT-SVID</label>\
+         <textarea id={DEVID_FIELD} name={DEVID_FIELD} rows=5 required autocapitalize=off autocorrect=off \
+         spellcheck=false></textarea><small>Only developers in {td} can set up this device. On your laptop, run \
+         <code>defakto dev-id fetch jwt-svid --trust-domain {td} --audience {aud}</code> (the device ID above) \
+         and paste <code>~/.defakto/dev-id/{td}/svids/jwt-svid</code> here.</small>",
+        aud = escape(device_id),
+    );
+}
+
+/// What the portal shows once the settings are saved. With `checking`, the
+/// device verifies a DevID before it uses them.
+pub fn saved_page(checking: bool) -> String {
+    let next = if checking {
+        "The device is restarting. It joins the network, checks your DevID, and shows whether it took the settings."
+    } else {
+        "The device is restarting with the new settings."
+    };
+    head("Saved") + "<h1>Saved</h1><p>" + next + " You can leave this network.</p></body></html>"
 }
 
 fn head(title: &str) -> String {
@@ -375,7 +473,7 @@ mod tests {
     #[test]
     fn page_escapes_values_and_hides_the_password() {
         let s = Settings { login_client_id: "\"><script>".into(), ..complete() };
-        let html = page(&s, &["<net>".into()], Some("bad & worse"));
+        let html = page(&s, &["<net>".into()], Some("bad & worse"), None);
         assert!(html.contains("value=\"&quot;&gt;&lt;script&gt;\""));
         assert!(html.contains("<option value=\"&lt;net&gt;\">"));
         assert!(html.contains("<p class=err>bad &amp; worse</p>"));
@@ -385,10 +483,60 @@ mod tests {
 
     #[test]
     fn page_posts_every_field() {
-        let html = page(&complete(), &[], None);
+        let html = page(&complete(), &[], None, None);
         for f in FIELDS {
             assert!(html.contains(&format!(" name={} ", f.key)), "{}", f.key);
         }
         assert_eq!(html.matches("<details>").count(), html.matches("</details>").count());
+        assert!(!html.contains("name=devid"));
+    }
+
+    fn gate() -> DevIdGate {
+        DevIdGate { issuer: "https://td.example/t-1".into(), subjects: "spiffe://td.example/users/".into() }
+    }
+
+    fn devid(aud: serde_json::Value, sub: &str) -> String {
+        defakto::testing::make_jwt(&serde_json::json!({"aud": aud, "sub": sub}))
+    }
+
+    #[test]
+    fn page_asks_for_a_devid_for_this_device() {
+        let html = page(&complete(), &[], None, Some(&gate()));
+        assert!(html.contains("name=devid"));
+        assert!(html.contains("--trust-domain td.example --audience defakto-demo"));
+    }
+
+    #[test]
+    fn precheck_catches_the_wrong_token() {
+        let form = |token: &str| format!("devid={token}");
+        let alice = devid("defakto-demo".into(), "spiffe://td.example/users/alice");
+        assert_eq!(gate().precheck(&form(&alice), "defakto-demo"), Ok(alice.clone()));
+        let listed = devid(serde_json::json!(["x", "defakto-demo"]), "spiffe://td.example/users/alice");
+        assert!(gate().precheck(&form(&listed), "defakto-demo").is_ok());
+
+        assert_eq!(gate().precheck("devid=+", "defakto-demo"), Err("Paste a DevID JWT-SVID.".into()));
+        assert_eq!(gate().precheck(&form("nope"), "defakto-demo"), Err("That isn't a JWT.".into()));
+        let other_aud = devid("testing123".into(), "spiffe://td.example/users/alice");
+        assert!(gate().precheck(&form(&other_aud), "defakto-demo").unwrap_err().contains("testing123"));
+        let workload = devid("defakto-demo".into(), "spiffe://td.example/iot/defakto-demo");
+        assert_eq!(
+            gate().precheck(&form(&workload), "defakto-demo"),
+            Err("spiffe://td.example/iot/defakto-demo can't set up this device.".into())
+        );
+    }
+
+    #[test]
+    fn pending_keeps_settings_and_token_apart() {
+        let form = pending_form(&complete(), "a.b.c");
+        assert_eq!(Settings::default().overlaid(&form), complete());
+        assert_eq!(pending_token(&form).as_deref(), Some("a.b.c"));
+        assert_eq!(pending_token(&complete().to_form()), None);
+    }
+
+    #[test]
+    fn check_says_what_failed() {
+        // `defakto::verify` tests the signature check itself.
+        let mut http = defakto::testing::FakeHttp::default().fail("unreachable");
+        assert_eq!(gate().check(&mut http, "t", "defakto-demo", 0), Err("fetching keys: network: unreachable".into()));
     }
 }

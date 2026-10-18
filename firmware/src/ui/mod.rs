@@ -9,7 +9,7 @@ use std::ops::Range;
 use std::time::Instant;
 
 use anyhow::Result;
-use demo::app::{Progress, Screen, Status, Step};
+use demo::app::{Progress, Provisioning, Screen, Status, Step};
 use demo::claims::DisplayClaims;
 use demo::setup::wifi_qr;
 use demo::text::{abbreviate, countdown, without_scheme, wrap, wrap_at_most};
@@ -133,6 +133,7 @@ fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
         Screen::Error(msg) => message(s, "Check-in failed", Some(msg)),
         Screen::Setup { ssid, password, portal } => setup(s, f.qr, ssid, password, portal),
         Screen::Restarting => message(s, "Saved. Restarting...", None),
+        Screen::Provisioning(p) => provisioning(s, p),
     }
     None
 }
@@ -202,6 +203,20 @@ fn setup(s: &mut Strip, qr: Option<&QrCode>, ssid: &str, password: &str, portal:
     y = centered(s, "PASSWORD", y, &BODY, DIM) + 2;
     y = centered(s, password, y, &BIG, PURPLE) + 8;
     centered(s, &format!("then open {}", without_scheme(portal)), y, &BODY, DIM);
+}
+
+fn provisioning(s: &mut Strip, p: &Provisioning) {
+    let (heading, color, detail) = match p {
+        Provisioning::Checking => ("Checking DevID...", FG, None),
+        Provisioning::Configured(developer) => ("Set up by", OK, Some(developer.as_str())),
+        Provisioning::Refused(why) => ("Settings refused", WARN, Some(why.as_str())),
+    };
+    let mut y = centered(s, heading, 120, &HEADING, color) + 10;
+    for line in wrap_at_most(detail.unwrap_or_default(), columns(&BODY), MAX_DETAIL_LINES) {
+        y = centered(s, &line, y, &BODY, FG);
+    }
+    let footer = if matches!(p, Provisioning::Checking) { "joining WiFi, then verifying" } else { "restarting..." };
+    centered(s, footer, FOOTER_TOP, &BODY, DIM);
 }
 
 fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {

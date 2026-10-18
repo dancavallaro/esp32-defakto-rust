@@ -28,16 +28,27 @@ impl HttpClient for UreqClient {
             Ok(r) | Err(ureq::Error::Status(_, r)) => r,
             Err(e) => return Err(HttpError(e.to_string())),
         };
-        let status = resp.status();
-        let headers = read_headers
-            .iter()
-            .filter_map(|h| resp.header(h).map(|v| (h.to_string(), v.to_string())))
-            .collect();
-        let mut body = Vec::new();
-        resp.into_reader()
-            .take(MAX_BODY)
-            .read_to_end(&mut body)
-            .map_err(|e| HttpError(e.to_string()))?;
-        Ok(HttpResponse { status, headers, body })
+        read(resp, read_headers)
     }
+
+    fn get(&mut self, url: &str) -> Result<HttpResponse, HttpError> {
+        match self.0.get(url).call() {
+            Ok(r) | Err(ureq::Error::Status(_, r)) => read(r, &[]),
+            Err(e) => Err(HttpError(e.to_string())),
+        }
+    }
+}
+
+fn read(resp: ureq::Response, read_headers: &[&str]) -> Result<HttpResponse, HttpError> {
+    let status = resp.status();
+    let headers = read_headers
+        .iter()
+        .filter_map(|h| resp.header(h).map(|v| (h.to_string(), v.to_string())))
+        .collect();
+    let mut body = Vec::new();
+    resp.into_reader()
+        .take(MAX_BODY)
+        .read_to_end(&mut body)
+        .map_err(|e| HttpError(e.to_string()))?;
+    Ok(HttpResponse { status, headers, body })
 }
