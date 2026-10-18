@@ -13,10 +13,11 @@ its claims on screen.
 
 A Cargo workspace of three packages, plus the firmware as a separate project:
 
-- `defakto/`: the Defakto client. It covers the attestors (`attest`, `evidence`), the serverless JWT-SVID call
-  (`serverless`, `grpcweb`), token exchange (`token_exchange`, `oauth`), and unverified JWT decoding.
-  This crate is the seed of a Rust libcommon, so keep it free of demo-specific code and of hardware. Anything a
-  platform must supply goes behind a trait: `http::HttpClient` for transport, `attest::HmacKey` for the key.
+- `defakto/`: the Defakto client. It covers the attestors (`attest`, `evidence`, and `tee_evidence` for the
+  ESP-TEE envelope), the serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`,
+  `oauth`), and unverified JWT decoding. This crate is the seed of a Rust libcommon, so keep it free of
+  demo-specific code and of hardware. Anything a platform must supply goes behind a trait: `http::HttpClient` for
+  transport, `attest::HmacKey` for the HMAC key, `attest::TeeTokenSource` for the TEE's tokens.
 - `demo/`: the demo's own logic, shared by host and firmware. It holds the device-code login (`login`), the
   orchestration with its polling and cancellation (`flow`), the screen state machine (`app`), tap and long-press
   detection (`gesture`), and what the result screen shows (`claims`).
