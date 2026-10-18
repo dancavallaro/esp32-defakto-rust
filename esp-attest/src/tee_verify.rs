@@ -1,4 +1,4 @@
-//! Verifying ESP-TEE envelopes, following the Go `esp32-attestor` this crate replaced.
+//! Verifying ESP-TEE envelopes.
 
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
 use p256::ecdsa::{Signature, VerifyingKey};
@@ -80,7 +80,7 @@ pub struct TeeClaims {
     pub bootloader: ImageClaims,
 }
 
-/// Each field is empty, 0 or false when the token leaves it out, as in Go.
+/// Each field is empty, 0 or false when the token leaves it out.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ImageClaims {
     pub ver: String,
@@ -183,8 +183,7 @@ fn parse<'a, T: Deserialize<'a>>(raw: &'a str, what: &str) -> Result<T, Error> {
     serde_json::from_str(raw).map_err(|e| Error(format!("parsing {what}: {e}")))
 }
 
-/// Unsigned big-endian hex of any length up to 32 bytes, as Go's `big.Int.SetString` reads it,
-/// since leading zeros may be missing.
+/// Unsigned big-endian hex of any length up to 32 bytes, since leading zeros may be missing.
 fn scalar(digits: &str) -> Result<[u8; 32], Error> {
     let invalid = || Error(format!("signature scalar {digits:?} is not 1 to 64 hex digits"));
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -310,8 +309,7 @@ mod tests {
         }
     }
 
-    /// Go would let this key override `device_id` and then reject the envelope; it must not
-    /// override it here.
+    /// Keys are case-sensitive, so this one must not override `device_id`.
     #[test]
     fn ignores_key_differing_only_in_case() {
         let env = GOLDEN.replacen(r#""ts":"#, r#""Device_ID":"x","ts":"#, 1);
@@ -365,7 +363,7 @@ mod tests {
         assert!(verify_self_signed(&tok).is_ok());
     }
 
-    /// `big.Int` formatting drops leading zeros, and Go's verifier accepts that.
+    /// A signer may drop leading zeros from `r` and `s`.
     #[test]
     fn accepts_unpadded_r_and_s() {
         let mut tok = TestToken { unpadded: true, ..TestToken::new(1) };

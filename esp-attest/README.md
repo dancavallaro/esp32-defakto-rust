@@ -35,21 +35,10 @@ objects, concatenated in that order; `sign.r` and `sign.s` are hex. The verifier
 and that the low 32 bits of `eat.nonce` and `eat.client_id` (which the TEE prints as signed decimals) match the
 envelope's TEE nonce and `0x0DEFA470`.
 
+`sign.r` and `sign.s` may drop leading zeros, and `eat.sw_claims`, or anything in it, may be absent. Every other
+field is required. Keys are case-sensitive, and a repeated key or invalid UTF-8 is rejected.
+
 Golden vector: `testdata/tee_envelope_golden.json`, captured from a TEE with device `defakto-demo`, ts
 `1792200000` and nonce `0011223344556677`. Its TEE nonce is `0x78a5dd58`, and it verifies against the key
 `02cded7398be59dd931161ccf6ecc7482894f7411e6b5c768f5941e838ce12cdba`. A signer can't reproduce the TEE's
 signature, but it must produce that TEE nonce and the same envelope around the same token.
-
-## Differences from the Go verifier
-
-This crate replaced a Go verifier and accepts every genuine token it did. It keeps Go's leniency where a genuine
-device could need it: `r` and `s` may drop leading zeros, `eat.nonce` and `eat.client_id` may be any 64-bit
-integer whose low 32 bits match, and `eat.sw_claims` and anything in it may be absent, reading as empty, 0 or
-false. On malformed input it differs deliberately, and apart from the first point it is stricter:
-
-- It reads only exact keys and ignores any that differ in case, where Go would let `"Device_ID"` override
-  `device_id`. That can't help a forger: the signature and nonce binding are checked against the fields it reads.
-- Fields are required rather than read as zero values, apart from `sw_claims`.
-- A repeated key is an error rather than the last one winning.
-- Invalid UTF-8, in a field it reads or in the signed objects, is rejected rather than replaced.
-- `r` and `s` must be bare hex digits; Go's `big.Int` also took a leading sign.

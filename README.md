@@ -184,9 +184,6 @@ the new file doesn't parse, it logs `keeping enrollment: …` (or `keeping TLS p
 one it has. A good one logs `enrollment reloaded: N devices`. It polls rather than watching because Kubernetes
 updates a mounted Secret by swapping a symlink.
 
-The attestor is stricter than the Go one it replaced about malformed evidence, such as repeated keys or invalid
-UTF-8, but it accepts every genuine token the Go one did. `esp-attest/README.md` lists the differences.
-
 `attestor/build.sh` tests `esp-attest` and the attestor, then builds a container image for amd64 and arm64 and pushes
 it to `ghcr.io/dancavallaro/esp32-spiffe-rust/esp32-attestor`, tagged `latest` and with the version in
 `attestor/Cargo.toml`. Pass `--no-push` to only build. The image runs `serve`, so mount the enrollment file and the

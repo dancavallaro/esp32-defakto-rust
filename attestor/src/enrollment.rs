@@ -47,7 +47,7 @@ pub fn parse(bytes: &[u8]) -> Result<Devices> {
         .collect()
 }
 
-// An empty string counts as absent, as it does in the Go attestor.
+// An empty string counts as absent.
 fn parse_device(entry: Entry) -> Result<Device> {
     let secret = entry.secret.filter(|s| !s.is_empty());
     let tee_pubkey = entry.tee_pubkey.filter(|s| !s.is_empty());

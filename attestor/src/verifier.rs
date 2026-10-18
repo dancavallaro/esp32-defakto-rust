@@ -1,5 +1,5 @@
 //! The webhook's verification, without HTTP: decode the payload, check its signature, then its
-//! freshness, then the replay cache, following the Go `esp32-attestor`'s `webhook.go`.
+//! freshness, then the replay cache.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -19,7 +19,7 @@ use crate::enrollment::Devices;
 pub const REJECT_INVALID: &str = "invalid evidence";
 pub const REJECT_STALE: &str = "stale evidence";
 
-/// The webhook's answer: attributes on success, or only `error`. Sorted, as Go encodes maps.
+/// The webhook's answer: attributes on success, or only `error`. Sorted, so the output is stable.
 pub type Response = BTreeMap<String, String>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,7 +154,7 @@ impl Verifier {
         Ok(self.result_for(anchor, device_id, nonce, attrs, now))
     }
 
-    /// `|now - ts| <= skew`, at `now`'s full precision as Go compares. A `ts` outside what
+    /// `|now - ts| <= skew`, at `now`'s full precision. A `ts` outside what
     /// `SystemTime` can hold is never fresh.
     fn fresh(&self, ts: i64, now: SystemTime) -> bool {
         let secs = Duration::from_secs(ts.unsigned_abs());

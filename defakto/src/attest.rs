@@ -112,7 +112,7 @@ mod tests {
 
     use super::*;
 
-    // From `esp32-enroll golden defakto-demo AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8= 1792200000 0011223344556677`.
+    // esp-attest's golden HMAC vector: secret bytes 0..32, ts 1792200000, nonce 0011223344556677.
     const GOLDEN_EVIDENCE: &str = r#"{"device_id":"defakto-demo","ts":1792200000,"nonce":"0011223344556677","mac":"b8eead1bcca6bc6368900c976dab032c0a7f8b8ac1427667e337904cf7a6c033"}"#;
 
     #[test]

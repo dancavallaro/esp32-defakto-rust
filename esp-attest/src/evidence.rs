@@ -13,8 +13,8 @@ pub enum Evidence {
     Tee(TeeEnvelope),
 }
 
-/// Dispatches on `format`: absent or empty is HMAC. Unlike the Go webhook, a missing
-/// field is an error rather than a zero value.
+/// Dispatches on `format`: absent or empty is HMAC. A missing field is an error rather than a
+/// zero value.
 pub fn parse_evidence(raw: &[u8]) -> Result<Evidence, Error> {
     #[derive(Deserialize)]
     struct Probe {
@@ -49,15 +49,14 @@ mod tests {
         assert!(parse_evidence(br#"{"device_id":"d","ts":1,"mac":"00"}"#).is_err());
     }
 
-    /// The deliberate differences from the Go verifier that the README lists.
     #[test]
-    fn stricter_than_go() {
+    fn rejects_malformed_evidence() {
         let golden = include_str!("../testdata/tee_envelope_golden.json");
         assert!(matches!(parse_evidence(golden.as_bytes()), Ok(Evidence::Tee(_))));
 
         let hmac = r#"{"device_id":"d","ts":1,"nonce":"00","mac":"00"}"#;
         assert!(parse_evidence(hmac.as_bytes()).is_ok());
-        assert!(parse_evidence(format!("{hmac} x").as_bytes()).is_err(), "trailing bytes, as in Go");
+        assert!(parse_evidence(format!("{hmac} x").as_bytes()).is_err(), "trailing bytes");
         let bad_utf8 = |from: &str, to: &[u8]| {
             let (before, after) = golden.split_once(from).unwrap();
             [before.as_bytes(), to, after.as_bytes()].concat()

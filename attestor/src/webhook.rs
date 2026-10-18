@@ -1,4 +1,4 @@
-//! The webhook's HTTP routes, matching the Go attestor's `newMux`.
+//! The webhook's HTTP routes.
 
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -25,8 +25,8 @@ pub fn router(verifier: Arc<Verifier>) -> Router {
         .with_state(verifier)
 }
 
-// The body is read as bytes rather than `Json` so that, as in Go, a missing or wrong
-// `Content-Type` isn't refused.
+// The body is read as bytes rather than `Json` so that a missing or wrong `Content-Type`
+// isn't refused.
 async fn attest(State(verifier): State<Arc<Verifier>>, body: Bytes) -> Json<Response> {
     let (response, decision) = match serde_json::from_slice::<AttestRequest>(&body) {
         Ok(request) => verifier.attest(&request.payload, SystemTime::now()),

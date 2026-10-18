@@ -8,7 +8,7 @@ pub fn signing_string(device_id: &str, ts: i64, nonce: &str) -> String {
     format!("{device_id}|{ts}|{nonce}")
 }
 
-/// Field order matters: the server compares against Go's `json.Marshal` output.
+/// Field order is fixed, so the output matches the golden vector byte for byte.
 /// The device ID and nonce need no escaping: `validate_device_id` and hex rule it out.
 pub fn evidence_json(device_id: &str, ts: i64, nonce: &str, mac: &[u8; 32]) -> String {
     format!(
@@ -57,7 +57,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn signing_string_matches_espattest() {
+    fn signing_string_format() {
         assert_eq!(
             signing_string("defakto-demo", 1792200000, "0011223344556677"),
             "defakto-demo|1792200000|0011223344556677"
