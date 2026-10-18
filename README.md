@@ -58,6 +58,30 @@ needs is in the token, so it should check:
 
 Without a `checkin_url`, the device stops after the exchange and shows the token's claims.
 
+## The check-in service
+
+`checkin/` is a ready-made check-in endpoint. It does the checks above, keeps a list of who's checked in, and
+serves a page at `/` that updates live as people arrive. Run it with your trust domain's issuer and the device's
+`obo_audience`:
+
+```sh
+CHECKIN_ISSUER=https://… CHECKIN_AUDIENCE=defakto-demo cargo run -p checkin
+```
+
+Then open `http://localhost:8080` and point the device at it with `checkin_url = "http://<host>:8080/checkins"`.
+Its settings can also live in `checkin/.env`:
+
+| Variable | |
+| --- | --- |
+| `CHECKIN_ISSUER` | The trust domain's issuer. The service finds its signing keys through OIDC discovery. |
+| `CHECKIN_AUDIENCE` | The `obo_audience` the device asks for. |
+| `CHECKIN_DEVICES` | Optional, comma-separated: the device SPIFFE IDs allowed to check people in. Unset allows any. |
+| `CHECKIN_USER_ISSUERS` | Optional, comma-separated: the user IdPs allowed. Unset allows any. |
+| `CHECKIN_LISTEN` | Where to listen. The default is `0.0.0.0:8080`. |
+
+The list lives in memory, so a restart clears it. To run it as a container, build from the repo root with
+`docker build -f checkin/Dockerfile -t checkin .`, adding `--platform linux/amd64` for an x86 cluster.
+
 ## Hardware
 
 The device is a Waveshare ESP32-C6-Touch-LCD-1.47. A tap on the screen or the BOOT button starts a check-in. A long

@@ -12,7 +12,7 @@ the OBO token to that check-in service as a bearer token, recording who checked 
 
 ## Layout
 
-A Cargo workspace of three packages, plus the firmware as a separate project:
+A Cargo workspace of four packages, plus the firmware as a separate project:
 
 - `defakto/`: the Defakto client. It covers the attestors (`attest`, `evidence`, and `tee_evidence` for the
   ESP-TEE envelope), the serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`,
@@ -24,6 +24,10 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
   detection (`gesture`), and what the result screen shows (`claims`).
 - `host/` (`demo-host`): a Mac CLI that runs the same flow against the live servers before any hardware is
   involved. It has two subcommands: `svid` and `login`.
+- `checkin/`: the check-in service the device checks people in with. It verifies each OBO token against the
+  trust domain's JWKS (found through OIDC discovery), keeps the roster in memory, and serves a live page at `/` over
+  server-sent events. It's demo-side, so it stays out of `defakto`. It builds into a container with
+  `checkin/Dockerfile`, from the repo root.
 - `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
   workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
   from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. `display` drives the JD9853 panel one
@@ -47,6 +51,9 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   `DEMO_LOGIN_TOKEN_URL`, `DEMO_LOGIN_CLIENT_ID` (the two URLs come from the IdP's OIDC discovery document), and
   optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_REQUESTED_TOKEN_TYPE`, `DEMO_OBO_AUDIENCE`, `DEMO_CHECKIN_URL`,
   `DEMO_SERVERLESS_URL` and `DEMO_TOKEN_URL`.
+- Check-in service: `cargo run -p checkin`, with settings from `CHECKIN_*` env vars or `checkin/.env`:
+  `CHECKIN_ISSUER` and `CHECKIN_AUDIENCE`, plus optional comma-separated `CHECKIN_DEVICES` and
+  `CHECKIN_USER_ISSUERS` allow-lists and `CHECKIN_LISTEN`.
 - Toolchain: the rustup proxies in `~/.cargo/bin` must come before Homebrew's `cargo` on PATH. Homebrew's
   stable-only Rust ignores `rust-toolchain.toml`, so it can't build the firmware.
 - ESP-IDF: before the first firmware build, run `firmware/patch-idf.sh`. It sets up `firmware/.embuild/esp-idf`

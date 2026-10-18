@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check-ins</title>
+<style>
+  :root {
+    --bg: #0c0816;
+    --panel: #160f26;
+    --line: #2a2140;
+    --fg: #e9e4f5;
+    --dim: #7d7690;
+    --purple: #a07cff;
+    --ok: #5ee3a1;
+    --warn: #ffcf5c;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 40px 24px 64px; }
+
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .brand { font-family: var(--mono); color: var(--purple); letter-spacing: 0.25em; font-size: 15px; }
+  h1 { margin: 8px 0 0; font-size: clamp(36px, 6vw, 56px); font-weight: 700; letter-spacing: -0.02em; }
+  h1 .count { color: var(--purple); font-variant-numeric: tabular-nums; }
+  .live { font-family: var(--mono); font-size: 14px; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+  .live .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  .live.on .dot { background: var(--ok); box-shadow: 0 0 0 0 rgba(94, 227, 161, 0.6); animation: ping 2s infinite; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 10px rgba(94, 227, 161, 0); } 100% { box-shadow: 0 0 0 0 rgba(94, 227, 161, 0); } }
+
+  ol { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 12px; }
+  li.card {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    gap: 4px 18px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  li.card.fresh { animation: arrive 2.4s ease-out; }
+  @keyframes arrive {
+    0% { transform: translateY(-8px); opacity: 0; border-color: var(--ok); }
+    15% { transform: none; opacity: 1; border-color: var(--ok); box-shadow: 0 0 0 4px rgba(94, 227, 161, 0.18); }
+    100% { border-color: var(--line); box-shadow: none; }
+  }
+  .avatar {
+    grid-row: span 2;
+    width: 56px; height: 56px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--line); color: var(--purple);
+    font-family: var(--mono); font-size: 24px; font-weight: 700;
+  }
+  .name { font-size: 22px; font-weight: 650; overflow-wrap: anywhere; }
+  .when { color: var(--dim); font-size: 14px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .who { color: var(--dim); font-size: 15px; overflow-wrap: anywhere; }
+  .badges { display: flex; gap: 8px; justify-content: flex-end; }
+  .via { grid-column: 2 / -1; font-family: var(--mono); font-size: 13px; color: var(--dim); overflow-wrap: anywhere; }
+  .via b { color: var(--fg); font-weight: 500; }
+  .pill { font-family: var(--mono); font-size: 12px; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .pill.ok { color: var(--ok); background: rgba(94, 227, 161, 0.1); }
+  .pill.again { color: var(--warn); background: rgba(255, 207, 92, 0.1); }
+
+  .empty {
+    margin-top: 32px; padding: 56px 24px; text-align: center;
+    border: 1px dashed var(--line); border-radius: 14px; color: var(--dim);
+  }
+  .empty strong { display: block; color: var(--fg); font-size: 22px; margin-bottom: 8px; font-weight: 600; }
+
+  footer { margin-top: 40px; color: var(--dim); font-size: 13px; line-height: 1.6; font-family: var(--mono); }
+  footer code { color: var(--fg); overflow-wrap: anywhere; }
+
+  @media (max-width: 560px) {
+    li.card { grid-template-columns: 44px 1fr; }
+    .avatar { width: 44px; height: 44px; font-size: 18px; }
+    .when, .badges { grid-column: 2; text-align: left; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="brand">DEFAKTO · BADGE READER</div>
+      <h1><span class="count" id="count">0</span> <span id="noun">people</span> checked in</h1>
+    </div>
+    <div class="live" id="live"><span class="dot"></span><span id="live-text">connecting…</span></div>
+  </header>
+
+  <ol id="list"></ol>
+  <div class="empty" id="empty">
+    <strong>Waiting for the first check-in</strong>
+    Tap the badge reader, scan the code, and sign in on your phone.
+  </div>
+
+  <footer id="footer"></footer>
+</main>
+
+<script>
+  const entries = new Map();
+  const $ = (id) => document.getElementById(id);
+  const keyOf = (e) => e.user_iss + "\n" + e.user_sub;
+
+  function host(url) {
+    try { return new URL(url).host; } catch { return url; }
+  }
+
+  function displayName(e) {
+    return e.name || (e.email && e.email.split("@")[0]) || e.user_sub;
+  }
+
+  function ago(unix) {
+    const secs = Math.max(0, Date.now() / 1000 - unix);
+    if (secs < 45) return "just now";
+    if (secs < 3600) return Math.round(secs / 60) + " min ago";
+    return new Date(unix * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function card(e, fresh) {
+    const li = el("li", "card" + (fresh ? " fresh" : ""));
+    const name = displayName(e);
+    li.append(el("div", "avatar", name.slice(0, 1).toUpperCase()));
+    li.append(el("div", "name", name));
+    const when = el("div", "when", ago(e.last_seen));
+    when.dataset.unix = e.last_seen;
+    li.append(when);
+    li.append(el("div", "who", [e.email, host(e.user_iss)].filter(Boolean).join(" · ")));
+    const badges = el("div", "badges");
+    badges.append(el("span", "pill ok", "✓ OBO verified"));
+    if (e.check_ins > 1) badges.append(el("span", "pill again", "×" + e.check_ins));
+    li.append(badges);
+    const via = el("div", "via", "via ");
+    via.append(el("b", null, e.device));
+    li.append(via);
+    return li;
+  }
+
+  function render(freshKey) {
+    const sorted = [...entries.values()].sort((a, b) => b.first_seen - a.first_seen);
+    $("list").replaceChildren(...sorted.map((e) => card(e, keyOf(e) === freshKey)));
+    $("count").textContent = sorted.length;
+    $("noun").textContent = sorted.length === 1 ? "person" : "people";
+    $("empty").hidden = sorted.length > 0;
+  }
+
+  function renderFooter(info) {
+    const f = $("footer");
+    f.replaceChildren();
+    const line = (...parts) => {
+      const p = el("div");
+      p.append(...parts);
+      f.append(p);
+    };
+    const code = (t) => el("code", null, t);
+    line("Every check-in is an OBO token signed by ", code(info.issuer), " for ", code(info.audience), ":");
+    line("the person is its subject, and the badge reader that checked them in is its actor.");
+    line("Devices: ", info.devices.length ? code(info.devices.join(", ")) : "any", " · IdPs: ",
+      info.user_issuers.length ? code(info.user_issuers.map(host).join(", ")) : "any");
+  }
+
+  async function load() {
+    const res = await fetch("roster");
+    const info = await res.json();
+    entries.clear();
+    info.attendees.forEach((e) => entries.set(keyOf(e), e));
+    render();
+    renderFooter(info);
+  }
+
+  function setLive(on) {
+    $("live").classList.toggle("on", on);
+    $("live-text").textContent = on ? "live" : "reconnecting…";
+  }
+
+  const events = new EventSource("events");
+  events.addEventListener("open", () => { setLive(true); load().catch(() => {}); });
+  events.addEventListener("error", () => setLive(false));
+  events.addEventListener("checkin", (ev) => {
+    const e = JSON.parse(ev.data);
+    entries.set(keyOf(e), e);
+    render(keyOf(e));
+  });
+
+  setInterval(() => {
+    document.querySelectorAll(".when").forEach((n) => { n.textContent = ago(Number(n.dataset.unix)); });
+  }, 15000);
+</script>
+</body>
+</html>
