@@ -18,6 +18,8 @@ impl EspClient {
             crt_bundle_attach: Some(esp_idf_svc::sys::esp_crt_bundle_attach),
             timeout: Some(TIMEOUT),
             buffer_size: Some(4096),
+            // Headers go out through this buffer, and the check-in's bearer token alone outgrows the 512-byte default.
+            buffer_size_tx: Some(4096),
             ..Default::default()
         })
         .map_err(err)
