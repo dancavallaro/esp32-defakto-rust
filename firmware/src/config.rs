@@ -22,7 +22,7 @@ pub struct Config {
     requested_token_type: &'static str,
     #[default("defakto-demo")]
     obo_audience: &'static str,
-    /// The attendance service's check-in endpoint; empty for none.
+    /// The check-in service's endpoint; empty for none.
     #[default("")]
     checkin_url: &'static str,
     #[default("efuse")]

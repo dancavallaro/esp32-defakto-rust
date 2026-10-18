@@ -39,9 +39,9 @@ pub struct Config {
     pub login_client_id: String,
     pub subject_token_type: String,
     pub requested_token_type: String,
-    /// Who the OBO token is for: the attendance service, when there is one.
+    /// Who the OBO token is for: the check-in service, when there is one.
     pub obo_audience: String,
-    /// The attendance service the OBO token is presented to. Without one, a
+    /// The check-in service the OBO token is presented to. Without one, a
     /// sign-in ends at the token exchange.
     pub checkin_url: Option<String>,
 }
@@ -213,7 +213,7 @@ pub fn exchange_token(
     Ok(token_exchange::exchange(http, &cfg.token_url, &req, svid)?)
 }
 
-/// Presents the OBO token to the attendance service, which learns from it both
+/// Presents the OBO token to the check-in service, which learns from it both
 /// who checked in and through which device.
 pub fn check_in(http: &mut impl HttpClient, url: &str, obo: &str) -> Result<(), FlowError> {
     let bearer = format!("Bearer {obo}");
@@ -450,19 +450,19 @@ mod tests {
     fn run_login_checks_in_with_the_obo_token() {
         let obo = make_jwt(&alice_obo());
         let mut http = signed_in_and_exchanged(&obo).reply(201, "");
-        let cfg = Config { checkin_url: Some("https://attend.example/checkins".into()), ..cfg() };
+        let cfg = Config { checkin_url: Some("https://checkin.example/checkins".into()), ..cfg() };
 
         let events = run_with(&mut http, &cfg, &|| false);
 
         let claims = DisplayClaims::from_obo_jwt(&obo).unwrap();
         assert_eq!(events[3..], [Event::Exchanged(claims.clone()), Event::CheckedIn(claims)]);
-        assert_eq!(http.requests[4].url, "https://attend.example/checkins");
+        assert_eq!(http.requests[4].url, "https://checkin.example/checkins");
     }
 
     #[test]
     fn check_in_presents_the_obo_token() {
         let mut http = FakeHttp::default().reply(204, "");
-        assert_eq!(check_in(&mut http, "https://attend.example/checkins", "o.b.o"), Ok(()));
+        assert_eq!(check_in(&mut http, "https://checkin.example/checkins", "o.b.o"), Ok(()));
         let req = &http.requests[0];
         assert_eq!(req.headers, [("authorization".to_string(), "Bearer o.b.o".to_string())]);
         assert_eq!((req.content_type.as_str(), req.body.as_slice()), (JSON_CONTENT_TYPE, b"{}".as_slice()));
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn check_in_refusal_is_an_error() {
         let mut http = FakeHttp::default().reply(403, r#"{"error":"unknown device"}"#);
-        let err = check_in(&mut http, "https://attend.example/checkins", "o.b.o").unwrap_err();
+        let err = check_in(&mut http, "https://checkin.example/checkins", "o.b.o").unwrap_err();
         assert_eq!(err.to_string(), "check-in refused: HTTP 403");
     }
 

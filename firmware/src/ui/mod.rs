@@ -222,7 +222,7 @@ fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
         Some((p.signed_in, "user signed in", "ID token from IdP")),
         Some((p.got_svid, "got JWT-SVID", "serverless API")),
         Some((p.exchanged, "token exchange", "RFC 8693 -> OBO SVID")),
-        p.checked_in.map(|step| (step, "checked in", "OBO -> attendance API")),
+        p.checked_in.map(|step| (step, "checked in", "OBO -> check-in API")),
     ];
     for (step, label, caption) in rows.into_iter().flatten() {
         let label_color = if step == Step::Pending { DIM } else { FG };

@@ -26,10 +26,10 @@ There's no shared API key baked into the device, and no user password ever touch
 3. **Defakto binds the two together.** The device exchanges the attendee's ID token and its own SVID for an
    on-behalf-of token (RFC 8693). In that token, `obo.sub` is the attendee and `obo.act.sub` is the device's SPIFFE
    ID, and Defakto signs it.
-4. **The check-in is recorded.** The device presents the OBO token to your attendance service, which verifies it
+4. **The check-in is recorded.** The device presents the OBO token to your check-in service, which verifies it
    against Defakto's trust bundle and records the attendee, the device and the time.
 
-Because the attendance service verifies the token rather than trusting the device, it can also enforce policy: it
+Because the check-in service verifies the token rather than trusting the device, it can also enforce policy: it
 accepts check-ins only from enrolled devices, and only for users of your IdP.
 
 ## Setting one up

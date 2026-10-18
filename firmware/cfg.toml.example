@@ -8,7 +8,7 @@ login_token_url = ""
 login_client_id = ""
 # The Trust Domain Server's issuer URL (the `iss` of any JWT-SVID it issues).
 svid_audience = ""
-# The attendance service's check-in endpoint, which receives the OBO token as a
+# The check-in service's endpoint, which receives the OBO token as a
 # bearer token. Leave it out to stop at the token exchange.
 # checkin_url = ""
 # Optional; these are the defaults.

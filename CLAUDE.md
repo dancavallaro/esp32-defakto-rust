@@ -8,7 +8,7 @@ A tech demo for the Waveshare ESP32-C6-Touch-LCD-1.47, written in Rust. The devi
 shows a QR code for an OIDC device-flow login (Pocket ID at home, Auth0 on-site). The device then attests to Defakto's serverless API for a JWT-SVID
 (`spiffe://prod.cavallaro.local/iot/defakto-demo`), exchanges the user's ID token for an OBO token (RFC 8693), and shows
 its claims on screen. The demo's story is a check-in badge reader: when `checkin_url` is set, the device presents
-the OBO token to that attendance service as a bearer token, recording who checked in and through which device.
+the OBO token to that check-in service as a bearer token, recording who checked in and through which device.
 
 ## Layout
 

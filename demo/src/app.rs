@@ -17,7 +17,7 @@ pub struct Progress {
     pub signed_in: Step,
     pub got_svid: Step,
     pub exchanged: Step,
-    /// `None` when no attendance service is configured.
+    /// `None` when no check-in service is configured.
     pub checked_in: Option<Step>,
 }
 
@@ -50,7 +50,7 @@ pub enum Event {
     SignedIn,
     SvidReady,
     Exchanged(DisplayClaims),
-    /// The attendance service accepted the OBO token.
+    /// The check-in service accepted the OBO token.
     CheckedIn(DisplayClaims),
     /// The sign-in code expired before anyone used it.
     Expired,
