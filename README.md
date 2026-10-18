@@ -60,6 +60,11 @@ Without a `checkin_url`, the device stops after the exchange and shows the token
 
 ## The check-in service
 
+<p align="center">
+  <img src="docs/images/checkin-page.png" width="640" alt="Check-in page: '4 people checked in', a card per attendee with their email, IdP, the badge reader's SPIFFE ID and an 'OBO verified' badge">
+</p>
+<p align="center"><sub>The check-in page, live as people arrive. (Render, with example values.)</sub></p>
+
 `checkin/` is a ready-made check-in endpoint. It does the checks above, keeps a list of who's checked in, and
 serves a page at `/` that updates live as people arrive. Run it with your trust domain's issuer and the device's
 `obo_audience`:
