@@ -123,8 +123,8 @@ fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
             return Some(sign_in(s, f.qr, verification_uri, user_code, (*expires_at - f.now, *expires_at - *issued_at)))
         }
         Screen::Progress(p) => progress(s, p, &f.status.attestor),
-        Screen::Result(claims) => return Some(result(s, claims, f.now)),
-        Screen::Error(msg) => message(s, "Sign-in failed", Some(msg)),
+        Screen::Result { claims, checked_in } => return Some(result(s, claims, *checked_in, f.now)),
+        Screen::Error(msg) => message(s, "Check-in failed", Some(msg)),
     }
     None
 }
@@ -148,7 +148,7 @@ fn idle(s: &mut Strip, status: &Status, pulse: f32) {
     let word_top = LOGO_TOP + logo::SIZE.height as i32 + 12;
     text(s, "defakto", Point::new(CENTER_X, word_top), &WORDMARK, FG, Alignment::Center);
     let tap = blend(FG, BG, pulse);
-    text(s, "[ tap to sign in ]", Point::new(CENTER_X, TAP_TOP as i32), &BODY, tap, Alignment::Center);
+    text(s, "[ tap to check in ]", Point::new(CENTER_X, TAP_TOP as i32), &BODY, tap, Alignment::Center);
     let footer = match (status.switching, status.svid) {
         (true, _) => "switching attestor...".into(),
         (false, true) => format!("attested via {}", status.attestor),
@@ -181,8 +181,11 @@ fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lif
     (y, bottom)
 }
 
-fn result(s: &mut Strip, c: &DisplayClaims, now: i64) -> (i32, i32) {
+fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {
     let mut y = centered(s, &c.greeting, BAR_H as i32 + 10, &BIG, FG) + 10;
+    if checked_in {
+        y = checked_in_banner(s, y) + 10;
+    }
     let txn = c.txn.as_deref().map(|t| abbreviate(t, columns(&BODY)));
     let rows = [
         ("ON BEHALF OF", Some(c.email.as_deref().unwrap_or(&c.user_sub))),
@@ -201,15 +204,27 @@ fn result(s: &mut Strip, c: &DisplayClaims, now: i64) -> (i32, i32) {
     (y, bottom)
 }
 
+/// A check mark beside "checked in", centered at `y`. Returns the y below it.
+fn checked_in_banner(s: &mut Strip, y: i32) -> i32 {
+    const LABEL: &str = "checked in";
+    const MARK_W: i32 = 18;
+    let width = MARK_W + LABEL.len() as i32 * HEADING.character_size.width as i32;
+    let left = CENTER_X - width / 2;
+    step_mark(s, Step::Done, Point::new(left, y + 1));
+    text(s, LABEL, Point::new(left + MARK_W, y), &HEADING, OK, Alignment::Left);
+    y + HEADING.character_size.height as i32
+}
+
 fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
-    let mut y = centered(s, "Signing in...", BAR_H as i32 + 20, &HEADING, FG) + 20;
+    let mut y = centered(s, "Checking in...", BAR_H as i32 + 20, &HEADING, FG) + 20;
     let rows = [
-        (p.attested, "device attested", attestor),
-        (p.signed_in, "user signed in", "ID token from IdP"),
-        (p.got_svid, "got JWT-SVID", "serverless API"),
-        (p.exchanged, "token exchange", "RFC 8693 -> OBO SVID"),
+        Some((p.attested, "device attested", attestor)),
+        Some((p.signed_in, "user signed in", "ID token from IdP")),
+        Some((p.got_svid, "got JWT-SVID", "serverless API")),
+        Some((p.exchanged, "token exchange", "RFC 8693 -> OBO SVID")),
+        p.checked_in.map(|step| (step, "checked in", "OBO -> attendance API")),
     ];
-    for (step, label, caption) in rows {
+    for (step, label, caption) in rows.into_iter().flatten() {
         let label_color = if step == Step::Pending { DIM } else { FG };
         step_mark(s, step, Point::new(MARGIN + 2, y + 1));
         text(s, label, Point::new(MARGIN + 22, y), &HEADING, label_color, Alignment::Left);

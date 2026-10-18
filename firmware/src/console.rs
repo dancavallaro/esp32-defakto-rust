@@ -10,16 +10,16 @@ pub fn render(screen: &Screen, status: &Status) {
     match screen {
         Screen::Idle => {
             println!("\n== Defakto demo ==  WiFi {}  SVID {}  {}", dot(status.wifi), dot(status.svid), status.attestor);
-            println!("Press BOOT to sign in.");
+            println!("Press BOOT to check in.");
         }
         Screen::Starting => println!("Contacting the identity provider…"),
         Screen::Qr { uri, verification_uri, user_code, .. } => {
             print_qr(uri);
             println!("Scan, or visit {verification_uri} and enter {user_code}. Press BOOT to cancel.");
         }
-        Screen::Progress(_) => println!("Signing in…"),
-        Screen::Result(c) => {
-            println!("\n{}", c.greeting);
+        Screen::Progress(_) => println!("Checking in…"),
+        Screen::Result { claims: c, checked_in } => {
+            println!("\n{}{}", c.greeting, if *checked_in { "  ✓ checked in" } else { "" });
             if let Some(email) = &c.email {
                 println!("  email   {email}");
             }
@@ -31,7 +31,7 @@ pub fn render(screen: &Screen, status: &Status) {
             }
             println!("Press BOOT to start over.");
         }
-        Screen::Error(msg) => println!("\nError: {msg}\nPress BOOT to start over."),
+        Screen::Error(msg) => println!("\nCheck-in failed: {msg}\nPress BOOT to start over."),
     }
 }
 

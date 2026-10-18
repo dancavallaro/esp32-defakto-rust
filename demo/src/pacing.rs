@@ -45,7 +45,7 @@ mod tests {
     }
 
     fn progress(got_svid: Step) -> Screen {
-        Screen::Progress(Progress { attested: Step::Done, signed_in: Step::Done, got_svid, exchanged: Step::Pending })
+        Screen::Progress(Progress { attested: Step::Done, signed_in: Step::Done, got_svid, exchanged: Step::Pending, checked_in: None })
     }
 
     #[test]

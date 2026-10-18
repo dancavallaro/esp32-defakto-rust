@@ -1,5 +1,6 @@
 //! The demo's network steps, in order: attest for a JWT-SVID, log the user in
-//! with the device flow, then exchange their ID token for an OBO token.
+//! with the device flow, exchange their ID token for an OBO token, then check
+//! them in with it.
 
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ use crate::login::{self, DeviceAuthorization, PollOutcome};
 pub const SERVERLESS_URL: &str = "https://defakto.o.cavnet.cloud";
 pub const TOKEN_URL: &str = "https://defakto.o.cavnet.cloud/oauth/token";
 pub const LOGIN_SCOPE: &str = "openid profile email";
+const JSON_CONTENT_TYPE: &str = "application/json";
 
 const DEFAULT_POLL_INTERVAL: u64 = 5;
 const SLOW_DOWN_STEP: Duration = Duration::from_secs(5);
@@ -37,8 +39,11 @@ pub struct Config {
     pub login_client_id: String,
     pub subject_token_type: String,
     pub requested_token_type: String,
-    /// Who the OBO token is for; nothing downstream consumes it in this demo.
+    /// Who the OBO token is for: the attendance service, when there is one.
     pub obo_audience: String,
+    /// The attendance service the OBO token is presented to. Without one, a
+    /// sign-in ends at the token exchange.
+    pub checkin_url: Option<String>,
 }
 
 pub trait Clock {
@@ -63,6 +68,8 @@ pub enum FlowError {
     Denied,
     #[error("cancelled")]
     Cancelled,
+    #[error("check-in refused: HTTP {0}")]
+    CheckIn(u16),
 }
 
 pub fn fetch_svid(
@@ -166,7 +173,13 @@ fn login(
     report(Event::SignedIn);
     let svid = fetch_svid(http, cfg, attestor, clock.unix_now(), nonce)?;
     report(Event::SvidReady);
-    report(Event::Exchanged(exchange(http, cfg, &id_token, &svid)?));
+    let obo = exchange_token(http, cfg, &id_token, &svid)?;
+    let claims = DisplayClaims::from_obo_jwt(&obo)?;
+    report(Event::Exchanged(claims.clone()));
+    if let Some(url) = &cfg.checkin_url {
+        check_in(http, url, &obo)?;
+        report(Event::CheckedIn(claims));
+    }
     Ok(())
 }
 
@@ -184,17 +197,7 @@ fn sleep_unless_cancelled(clock: &mut dyn Clock, d: Duration, cancelled: &dyn Fn
     cancelled()
 }
 
-pub fn exchange(
-    http: &mut impl HttpClient,
-    cfg: &Config,
-    id_token: &str,
-    svid: &SvidToken,
-) -> Result<DisplayClaims, FlowError> {
-    let token = exchange_token(http, cfg, id_token, svid)?;
-    Ok(DisplayClaims::from_obo_jwt(&token)?)
-}
-
-/// Like `exchange`, but returns the raw OBO token.
+/// Exchanges the user's ID token for an OBO token naming this device as actor.
 pub fn exchange_token(
     http: &mut impl HttpClient,
     cfg: &Config,
@@ -210,12 +213,23 @@ pub fn exchange_token(
     Ok(token_exchange::exchange(http, &cfg.token_url, &req, svid)?)
 }
 
+/// Presents the OBO token to the attendance service, which learns from it both
+/// who checked in and through which device.
+pub fn check_in(http: &mut impl HttpClient, url: &str, obo: &str) -> Result<(), FlowError> {
+    let bearer = format!("Bearer {obo}");
+    let resp = http.post(url, JSON_CONTENT_TYPE, &[("authorization", &bearer)], b"{}", &[])?;
+    match resp.status {
+        200..=299 => Ok(()),
+        status => Err(FlowError::CheckIn(status)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use defakto::testing::{make_jwt, FakeHttp};
+    use defakto::testing::{make_jwt, svid_response, FakeHttp};
 
     use super::*;
     use crate::claims::fixtures::alice_obo;
@@ -261,6 +275,7 @@ mod tests {
             subject_token_type: token_exchange::TOKEN_TYPE_ID_TOKEN.into(),
             requested_token_type: token_exchange::TOKEN_TYPE_JWT_SVID_OBO.into(),
             obo_audience: "https://api.example".into(),
+            checkin_url: None,
         }
     }
 
@@ -402,10 +417,62 @@ mod tests {
     }
 
     fn run(http: &mut FakeHttp, cancelled: &dyn Fn() -> bool) -> Vec<Event> {
+        run_with(http, &cfg(), cancelled)
+    }
+
+    fn run_with(http: &mut FakeHttp, cfg: &Config, cancelled: &dyn Fn() -> bool) -> Vec<Event> {
         let mut clock = FakeClock::new(http);
         let mut events = vec![];
-        run_login(http, &cfg(), &attestor(), &mut clock, "00", cancelled, &mut |ev| events.push(ev));
+        run_login(http, cfg, &attestor(), &mut clock, "00", cancelled, &mut |ev| events.push(ev));
         events
+    }
+
+    /// Replies for a sign-in that gets as far as the OBO token.
+    fn signed_in_and_exchanged(obo: &str) -> FakeHttp {
+        FakeHttp::default()
+            .reply(200, device_code(900))
+            .reply(200, r#"{"id_token":"id.tok.en"}"#)
+            .reply(200, svid_response("spiffe://p/iot/defakto-demo", "svid.jwt.sig"))
+            .reply(200, format!(r#"{{"access_token":"{obo}"}}"#))
+    }
+
+    #[test]
+    fn run_login_ends_at_the_exchange_without_a_checkin_url() {
+        let mut http = signed_in_and_exchanged(&make_jwt(&alice_obo()));
+        let events = run(&mut http, &|| false);
+        assert!(
+            matches!(&events[..], [Event::LoginStarted { .. }, Event::SignedIn, Event::SvidReady, Event::Exchanged(c)] if c.greeting == "Hi, Alice!"),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn run_login_checks_in_with_the_obo_token() {
+        let obo = make_jwt(&alice_obo());
+        let mut http = signed_in_and_exchanged(&obo).reply(201, "");
+        let cfg = Config { checkin_url: Some("https://attend.example/checkins".into()), ..cfg() };
+
+        let events = run_with(&mut http, &cfg, &|| false);
+
+        let claims = DisplayClaims::from_obo_jwt(&obo).unwrap();
+        assert_eq!(events[3..], [Event::Exchanged(claims.clone()), Event::CheckedIn(claims)]);
+        assert_eq!(http.requests[4].url, "https://attend.example/checkins");
+    }
+
+    #[test]
+    fn check_in_presents_the_obo_token() {
+        let mut http = FakeHttp::default().reply(204, "");
+        assert_eq!(check_in(&mut http, "https://attend.example/checkins", "o.b.o"), Ok(()));
+        let req = &http.requests[0];
+        assert_eq!(req.headers, [("authorization".to_string(), "Bearer o.b.o".to_string())]);
+        assert_eq!((req.content_type.as_str(), req.body.as_slice()), (JSON_CONTENT_TYPE, b"{}".as_slice()));
+    }
+
+    #[test]
+    fn check_in_refusal_is_an_error() {
+        let mut http = FakeHttp::default().reply(403, r#"{"error":"unknown device"}"#);
+        let err = check_in(&mut http, "https://attend.example/checkins", "o.b.o").unwrap_err();
+        assert_eq!(err.to_string(), "check-in refused: HTTP 403");
     }
 
     #[test]
@@ -461,14 +528,12 @@ mod tests {
     }
 
     #[test]
-    fn exchange_posts_form_and_decodes() {
+    fn exchange_posts_form() {
         let obo = make_jwt(&alice_obo());
         let mut http = FakeHttp::default().reply(200, format!(r#"{{"access_token":"{obo}"}}"#));
         let svid = SvidToken { spiffe_id: "spiffe://p/iot/defakto-demo".into(), token: "svid.jwt.sig".into() };
 
-        let claims = exchange(&mut http, &cfg(), "id.tok.en", &svid).unwrap();
-
-        assert_eq!(claims.greeting, "Hi, Alice!");
+        assert_eq!(exchange_token(&mut http, &cfg(), "id.tok.en", &svid), Ok(obo));
         assert_eq!(http.requests[0].url, TOKEN_URL);
         assert_eq!(
             http.requests[0].body,

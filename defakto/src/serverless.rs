@@ -123,8 +123,8 @@ pub fn fetch_jwt_svid(
 }
 
 /// Encodes a response message holding the given `(spiffe_id, token)` SVIDs.
-#[cfg(test)]
-fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
+#[cfg(any(test, feature = "testing"))]
+pub(crate) fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
     let svids = svids
         .iter()
         .map(|(id, token)| pb::JwtSvid { spiffe_id: (*id).into(), svid: (*token).into(), hint: String::new() })
@@ -136,7 +136,7 @@ fn encode_response(svids: &[(&str, &str)]) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::attest::{HmacAttestor, SoftwareHmacKey};
-    use crate::testing::FakeHttp;
+    use crate::testing::{svid_response, FakeHttp};
 
     fn evidence() -> Evidence {
         Evidence { method_type: "extension", method_version: "1.0", payload: b"{\"x\":1}".to_vec() }
@@ -193,10 +193,7 @@ mod tests {
 
     #[test]
     fn fetch_posts_grpc_web() {
-        let mut body = grpcweb::frame(&encode_response(&[("spiffe://p/iot/defakto-demo", "jwt")]));
-        body.extend([0x80, 0, 0, 0, 15]);
-        body.extend(b"grpc-status:0\r\n");
-        let mut http = FakeHttp::default().reply(200, body);
+        let mut http = FakeHttp::default().reply(200, svid_response("spiffe://p/iot/defakto-demo", "jwt"));
 
         let svid = fetch_jwt_svid(&mut http, "https://tds", "https://issuer.example", &attestor(), NOW, "0011223344556677");
 

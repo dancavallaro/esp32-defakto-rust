@@ -9,6 +9,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::http::{HttpClient, HttpError, HttpResponse};
+use crate::{grpcweb, serverless};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Request {
@@ -59,6 +60,14 @@ impl HttpClient for FakeHttp {
         });
         self.replies.pop_front().expect("unexpected request")
     }
+}
+
+/// A successful gRPC-web reply to `FetchJWTSVID`, carrying one SVID.
+pub fn svid_response(spiffe_id: &str, token: &str) -> Vec<u8> {
+    let mut body = grpcweb::frame(&serverless::encode_response(&[(spiffe_id, token)]));
+    body.extend([0x80, 0, 0, 0, 15]);
+    body.extend(b"grpc-status:0\r\n");
+    body
 }
 
 /// An unsigned JWT carrying `payload`.

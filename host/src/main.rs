@@ -31,7 +31,8 @@ struct Cli {
 enum Command {
     /// Attest and fetch a JWT-SVID, then print its claims.
     Svid,
-    /// Run the full device login and OBO token exchange.
+    /// Run the full device login and OBO token exchange, then check in if
+    /// `DEMO_CHECKIN_URL` is set.
     Login,
 }
 
@@ -73,6 +74,10 @@ fn login(http: &mut UreqClient, cfg: &Config) -> Result<()> {
     println!("OBO token claims:");
     print_claims(&obo)?;
     println!("{:#?}", DisplayClaims::from_obo_jwt(&obo)?);
+    if let Some(url) = &cfg.checkin_url {
+        flow::check_in(http, url, &obo)?;
+        println!("Checked in at {url}");
+    }
     Ok(())
 }
 
@@ -98,6 +103,7 @@ fn config() -> Config {
         subject_token_type: var_or("DEMO_SUBJECT_TOKEN_TYPE", TOKEN_TYPE_ID_TOKEN),
         requested_token_type: var_or("DEMO_REQUESTED_TOKEN_TYPE", TOKEN_TYPE_JWT_SVID_OBO),
         obo_audience: var_or("DEMO_OBO_AUDIENCE", "defakto-demo"),
+        checkin_url: env::var("DEMO_CHECKIN_URL").ok().filter(|v| !v.is_empty()),
     }
 }
 

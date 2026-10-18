@@ -89,6 +89,7 @@ fn run() -> Result<()> {
         }
     };
     let mut app = App::new(Status { attestor: attestor.label().to_string(), ..Status::default() });
+    app.checks_in = cfg.checkin_url.is_some();
     screens.show(&app);
 
     let net = net::connect(peripherals.modem, sysloop, nvs.clone())?;

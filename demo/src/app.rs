@@ -17,6 +17,8 @@ pub struct Progress {
     pub signed_in: Step,
     pub got_svid: Step,
     pub exchanged: Step,
+    /// `None` when no attendance service is configured.
+    pub checked_in: Option<Step>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,7 +27,7 @@ pub enum Screen {
     Starting,
     Qr { uri: String, verification_uri: String, user_code: String, issued_at: i64, expires_at: i64 },
     Progress(Progress),
-    Result(DisplayClaims),
+    Result { claims: DisplayClaims, checked_in: bool },
     Error(String),
 }
 
@@ -48,6 +50,8 @@ pub enum Event {
     SignedIn,
     SvidReady,
     Exchanged(DisplayClaims),
+    /// The attendance service accepted the OBO token.
+    CheckedIn(DisplayClaims),
     /// The sign-in code expired before anyone used it.
     Expired,
     Failed(String),
@@ -64,11 +68,13 @@ pub enum Command {
 pub struct App {
     pub screen: Screen,
     pub status: Status,
+    /// Whether a sign-in ends by recording a check-in.
+    pub checks_in: bool,
 }
 
 impl App {
     pub fn new(status: Status) -> Self {
-        Self { screen: Screen::Idle, status }
+        Self { screen: Screen::Idle, status, checks_in: false }
     }
 
     /// Events that don't fit the current screen are ignored: they come from a
@@ -89,7 +95,7 @@ impl App {
                 (Idle, Command::SwitchAttestor)
             }
             (Qr { .. }, Event::Tap) => (Idle, Command::Cancel),
-            (Result(_) | Error(_), Event::Tap) => (Idle, Command::None),
+            (Result { .. } | Error(_), Event::Tap) => (Idle, Command::None),
             (Starting, Event::LoginStarted { auth, now }) => (
                 Qr {
                     uri: auth.verification_uri_complete.unwrap_or_else(|| auth.verification_uri.clone()),
@@ -106,6 +112,7 @@ impl App {
                     signed_in: Step::Done,
                     got_svid: Step::Active,
                     exchanged: Step::Pending,
+                    checked_in: self.checks_in.then_some(Step::Pending),
                 }),
                 Command::None,
             ),
@@ -113,10 +120,17 @@ impl App {
                 Progress(self::Progress { got_svid: Step::Done, exchanged: Step::Active, ..p.clone() }),
                 Command::None,
             ),
-            (Progress(_), Event::Exchanged(claims)) => (Result(claims), Command::None),
+            (Progress(p), Event::Exchanged(claims)) => match p.checked_in {
+                Some(_) => (
+                    Progress(self::Progress { exchanged: Step::Done, checked_in: Some(Step::Active), ..p.clone() }),
+                    Command::None,
+                ),
+                None => (Result { claims, checked_in: false }, Command::None),
+            },
+            (Progress(_), Event::CheckedIn(claims)) => (Result { claims, checked_in: true }, Command::None),
             (Qr { .. }, Event::Expired) => (Idle, Command::None),
             // A login nobody is looking at, e.g. one queued behind a cancelled run.
-            (Idle | Result(_) | Error(_), Event::LoginStarted { .. }) => return Command::Cancel,
+            (Idle | Result { .. } | Error(_), Event::LoginStarted { .. }) => return Command::Cancel,
             (_, Event::Failed(msg)) if in_flight => (Error(msg), Command::None),
             _ => return Command::None,
         };
@@ -153,7 +167,11 @@ mod tests {
     }
 
     fn progress(got_svid: Step, exchanged: Step) -> Screen {
-        Screen::Progress(Progress { attested: Step::Done, signed_in: Step::Done, got_svid, exchanged })
+        Screen::Progress(Progress { attested: Step::Done, signed_in: Step::Done, got_svid, exchanged, checked_in: None })
+    }
+
+    fn result(checked_in: bool) -> Screen {
+        Screen::Result { claims: claims(), checked_in }
     }
 
     fn started() -> Event {
@@ -183,10 +201,29 @@ mod tests {
         app.handle(Event::SvidReady);
         assert_eq!(app.screen, progress(Step::Done, Step::Active));
         app.handle(Event::Exchanged(claims()));
-        assert_eq!(app.screen, Screen::Result(claims()));
+        assert_eq!(app.screen, result(false));
 
         assert_eq!(app.handle(Event::Tap), Command::None);
         assert_eq!(app.screen, Screen::Idle);
+    }
+
+    #[test]
+    fn check_in_follows_the_exchange() {
+        let mut app = App::new(Status::default());
+        app.checks_in = true;
+        app.handle(Event::Tap);
+        app.handle(started());
+        app.handle(Event::SignedIn);
+        app.handle(Event::SvidReady);
+        let Screen::Progress(p) = &app.screen else { panic!("{:?}", app.screen) };
+        assert_eq!((p.exchanged, p.checked_in), (Step::Active, Some(Step::Pending)));
+
+        app.handle(Event::Exchanged(claims()));
+        let Screen::Progress(p) = &app.screen else { panic!("{:?}", app.screen) };
+        assert_eq!((p.exchanged, p.checked_in), (Step::Done, Some(Step::Active)));
+
+        app.handle(Event::CheckedIn(claims()));
+        assert_eq!(app.screen, result(true));
     }
 
     #[test]
@@ -255,7 +292,7 @@ mod tests {
 
     #[test]
     fn a_login_start_with_no_login_showing_is_cancelled() {
-        for screen in [Screen::Idle, Screen::Error("x".into()), Screen::Result(claims())] {
+        for screen in [Screen::Idle, Screen::Error("x".into()), result(true)] {
             let mut app = App::new(Status::default());
             app.screen = screen.clone();
             assert_eq!(app.handle(started()), Command::Cancel);

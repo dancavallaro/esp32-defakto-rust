@@ -22,6 +22,9 @@ pub struct Config {
     requested_token_type: &'static str,
     #[default("defakto-demo")]
     obo_audience: &'static str,
+    /// The attendance service's check-in endpoint; empty for none.
+    #[default("")]
+    checkin_url: &'static str,
     #[default("efuse")]
     default_attestor: &'static str,
     /// The eFuse key block (0 to 5) holding the device secret for `efuse`.
@@ -40,5 +43,6 @@ pub fn flow_config() -> demo::flow::Config {
         subject_token_type: CONFIG.subject_token_type.into(),
         requested_token_type: CONFIG.requested_token_type.into(),
         obo_audience: CONFIG.obo_audience.into(),
+        checkin_url: Some(CONFIG.checkin_url).filter(|url| !url.is_empty()).map(Into::into),
     }
 }
