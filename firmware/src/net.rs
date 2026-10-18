@@ -4,12 +4,13 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use esp_idf_svc::eventloop::EspSystemEventLoop;
+use esp_idf_svc::eventloop::{EspSubscription, EspSystemEventLoop, System};
 use esp_idf_svc::hal::modem::Modem;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sntp::{EspSntp, SyncStatus};
-use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
-use log::info;
+use esp_idf_svc::sys::{esp, esp_wifi_connect};
+use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiEvent};
+use log::{info, warn};
 
 use crate::config::CONFIG;
 
@@ -19,12 +20,20 @@ const EARLIEST_VALID_TIME: u64 = 1_704_067_200;
 
 /// Keeps WiFi up and SNTP resyncing for as long as it lives.
 pub struct Net {
-    _wifi: BlockingWifi<EspWifi<'static>>,
+    wifi: BlockingWifi<EspWifi<'static>>,
+    _rejoin: EspSubscription<'static, System>,
     _sntp: EspSntp<'static>,
 }
 
+impl Net {
+    /// Joined and holding an address.
+    pub fn is_up(&self) -> bool {
+        self.wifi.is_up().unwrap_or(false)
+    }
+}
+
 pub fn connect(modem: Modem<'static>, sysloop: EspSystemEventLoop, nvs: EspDefaultNvsPartition) -> Result<Net> {
-    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sysloop.clone(), Some(nvs))?, sysloop)?;
+    let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sysloop.clone(), Some(nvs))?, sysloop.clone())?;
     wifi.set_configuration(&Configuration::Client(ClientConfiguration {
         ssid: CONFIG.wifi_ssid.try_into().map_err(|_| anyhow::anyhow!("wifi_ssid too long"))?,
         password: CONFIG.wifi_psk.try_into().map_err(|_| anyhow::anyhow!("wifi_psk too long"))?,
@@ -37,6 +46,16 @@ pub fn connect(modem: Modem<'static>, sysloop: EspSystemEventLoop, nvs: EspDefau
     wifi.wait_netif_up()?;
     let ip = wifi.wifi().sta_netif().get_ip_info()?;
     info!("IP {}", ip.ip);
+    // The driver never rejoins by itself, so a hotspot that drops the device
+    // would strand it until a reboot. A failed attempt fires another disconnect.
+    let rejoin = sysloop.subscribe::<WifiEvent, _>(|event| {
+        if let WifiEvent::StaDisconnected(d) = event {
+            warn!("WiFi dropped (reason {}); rejoining", d.reason());
+            if let Err(e) = esp!(unsafe { esp_wifi_connect() }) {
+                warn!("rejoining WiFi failed: {e}");
+            }
+        }
+    })?;
 
     let sntp = EspSntp::new_default()?;
     let started = Instant::now();
@@ -46,7 +65,7 @@ pub fn connect(modem: Modem<'static>, sysloop: EspSystemEventLoop, nvs: EspDefau
         }
         std::thread::sleep(Duration::from_millis(200));
     }
-    Ok(Net { _wifi: wifi, _sntp: sntp })
+    Ok(Net { wifi, _rejoin: rejoin, _sntp: sntp })
 }
 
 pub fn unix_now() -> u64 {

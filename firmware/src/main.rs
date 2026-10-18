@@ -88,10 +88,10 @@ fn run() -> Result<()> {
             attestors.build(&kind)?
         }
     };
-    let mut app = App::new(Status { wifi: false, svid: false, attestor: attestor.label().to_string() });
+    let mut app = App::new(Status { attestor: attestor.label().to_string(), ..Status::default() });
     screens.show(&app);
 
-    let _net = net::connect(peripherals.modem, sysloop, nvs.clone())?;
+    let net = net::connect(peripherals.modem, sysloop, nvs.clone())?;
     info!("time {} (unix)", net::unix_now());
     app.status.wifi = true;
     screens.show(&app);
@@ -122,6 +122,7 @@ fn run() -> Result<()> {
 
     loop {
         let (screen, status) = (app.screen.clone(), app.status.clone());
+        app.status.wifi = net.is_up();
         #[cfg(not(feature = "xiao"))]
         let gesture = touch.poll().unwrap_or_else(|e| {
             warn!("reading touch failed: {e}");
