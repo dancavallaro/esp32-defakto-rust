@@ -77,7 +77,7 @@ pub fn fetch_svid(
 
 pub fn start_login(http: &mut impl HttpClient, cfg: &Config) -> Result<DeviceAuthorization, FlowError> {
     let body = login::device_code_form(&cfg.login_client_id, LOGIN_SCOPE);
-    let resp = http.post(&cfg.login_device_url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+    let resp = http.post(&cfg.login_device_url, FORM_CONTENT_TYPE, &[], body.as_bytes(), &[])?;
     Ok(login::parse_device_authorization(&resp)?)
 }
 
@@ -103,7 +103,7 @@ pub fn wait_for_id_token(
         if sleep_unless_cancelled(clock, interval.min(Duration::from_secs(remaining as u64)), cancelled) {
             return Err(FlowError::Cancelled);
         }
-        let resp = match http.post(&cfg.login_token_url, FORM_CONTENT_TYPE, body.as_bytes(), &[]) {
+        let resp = match http.post(&cfg.login_token_url, FORM_CONTENT_TYPE, &[], body.as_bytes(), &[]) {
             Ok(resp) if resp.status < 500 => resp,
             failed => {
                 failures += 1;

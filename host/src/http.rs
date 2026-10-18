@@ -19,10 +19,12 @@ impl HttpClient for UreqClient {
         &mut self,
         url: &str,
         content_type: &str,
+        headers: &[(&str, &str)],
         body: &[u8],
         read_headers: &[&str],
     ) -> Result<HttpResponse, HttpError> {
-        let resp = match self.0.post(url).set("content-type", content_type).send_bytes(body) {
+        let req = headers.iter().fold(self.0.post(url).set("content-type", content_type), |req, (k, v)| req.set(k, v));
+        let resp = match req.send_bytes(body) {
             Ok(r) | Err(ureq::Error::Status(_, r)) => r,
             Err(e) => return Err(HttpError(e.to_string())),
         };

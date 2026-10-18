@@ -24,12 +24,14 @@ pub struct HttpError(pub String);
 
 pub trait HttpClient {
     /// Non-2xx responses are returned as `Ok`; `Err` means no response at all.
-    /// `read_headers` names the response headers the caller needs, since ESP-IDF
-    /// can only look headers up by name.
+    /// `headers` are sent besides the content type. `read_headers` names the
+    /// response headers the caller needs, since ESP-IDF can only look headers
+    /// up by name.
     fn post(
         &mut self,
         url: &str,
         content_type: &str,
+        headers: &[(&str, &str)],
         body: &[u8],
         read_headers: &[&str],
     ) -> Result<HttpResponse, HttpError>;

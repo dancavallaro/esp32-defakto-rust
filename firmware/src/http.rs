@@ -25,11 +25,19 @@ impl EspClient {
 }
 
 impl HttpClient for EspClient {
-    fn post(&mut self, url: &str, content_type: &str, body: &[u8], read_headers: &[&str]) -> Result<HttpResponse, HttpError> {
+    fn post(
+        &mut self,
+        url: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        read_headers: &[&str],
+    ) -> Result<HttpResponse, HttpError> {
         let mut conn = Self::connect()?;
         let len = body.len().to_string();
-        conn.initiate_request(Method::Post, url, &[("content-type", content_type), ("content-length", &len)])
-            .map_err(err)?;
+        let mut all = vec![("content-type", content_type), ("content-length", len.as_str())];
+        all.extend_from_slice(headers);
+        conn.initiate_request(Method::Post, url, &all).map_err(err)?;
         conn.write_all(body).map_err(err)?;
         conn.initiate_response().map_err(err)?;
 

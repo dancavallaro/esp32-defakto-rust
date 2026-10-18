@@ -50,7 +50,7 @@ pub fn parse_response(resp: &HttpResponse) -> Result<String, OAuthError> {
 /// Exchanges `req.subject_token` for a token issued to `svid`'s workload.
 pub fn exchange(http: &mut impl HttpClient, token_url: &str, req: &Request, svid: &SvidToken) -> Result<String, Error> {
     let body = request_form(req, &svid.token);
-    let resp = http.post(token_url, FORM_CONTENT_TYPE, body.as_bytes(), &[])?;
+    let resp = http.post(token_url, FORM_CONTENT_TYPE, &[], body.as_bytes(), &[])?;
     Ok(parse_response(&resp)?)
 }
 

@@ -118,7 +118,7 @@ pub fn fetch_jwt_svid(
     let evidence = attestor.evidence(now, nonce)?;
     let body = fetch_jwt_svid_body(&evidence, audience);
     let url = format!("{base_url}{FETCH_JWT_SVID_PATH}");
-    let resp = http.post(&url, grpcweb::CONTENT_TYPE, &body, grpcweb::READ_HEADERS)?;
+    let resp = http.post(&url, grpcweb::CONTENT_TYPE, &[], &body, grpcweb::READ_HEADERS)?;
     Ok(parse_fetch_jwt_svid(&grpcweb::parse_response(&resp)?)?)
 }
 

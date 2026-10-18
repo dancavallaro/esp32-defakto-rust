@@ -14,6 +14,7 @@ use crate::http::{HttpClient, HttpError, HttpResponse};
 pub struct Request {
     pub url: String,
     pub content_type: String,
+    pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub read_headers: Vec<String>,
 }
@@ -40,11 +41,19 @@ impl FakeHttp {
 }
 
 impl HttpClient for FakeHttp {
-    fn post(&mut self, url: &str, content_type: &str, body: &[u8], read_headers: &[&str]) -> Result<HttpResponse, HttpError> {
+    fn post(
+        &mut self,
+        url: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        read_headers: &[&str],
+    ) -> Result<HttpResponse, HttpError> {
         self.posts.set(self.posts.get() + 1);
         self.requests.push(Request {
             url: url.into(),
             content_type: content_type.into(),
+            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             body: body.to_vec(),
             read_headers: read_headers.iter().map(|h| h.to_string()).collect(),
         });
