@@ -12,6 +12,7 @@ axum = "0.8"
 # Ring rather than aws-lc-rs, so the image cross-compiles without cmake or clang.
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 base64 = "0.22"
+getrandom = "0.2"
 clap = { version = "4", features = ["derive"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }

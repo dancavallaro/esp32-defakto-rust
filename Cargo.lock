@@ -570,6 +570,7 @@ dependencies = [
  "base64",
  "clap",
  "esp-attest",
+ "getrandom",
  "http-body-util",
  "rustls",
  "serde",

@@ -20,7 +20,7 @@ There's no shared API key baked into the device, and no user password ever touch
 1. **The device proves what it is.** At boot it attests to Defakto and receives a JWT-SVID, such
    as `spiffe://example.org/iot/badge-reader`. It attests in one of two ways: an HMAC over a secret burned
    into read-protected eFuse, or a token signed by the chip's ESP-TEE. The TEE's token also reports which firmware
-   version is running.
+   version is running. Defakto hands the evidence to this repo's attestor (`esp32-attestor`), which checks it.
 2. **The attendee proves who they are.** A tap starts an OAuth device-code login (RFC 8628), and the screen shows
    a QR code. The attendee signs in on their own phone, and the device receives their ID token.
 3. **Defakto binds the two together.** The device exchanges the attendee's ID token and its own SVID for an
@@ -37,8 +37,10 @@ accepts check-ins only from enrolled devices, and only for users of your IdP.
 The firmware is open source. To deploy it, you:
 
 - **Register an OIDC client** for the device-code grant with your IdP. Pocket ID and Auth0 are both tested.
-- **Enroll the device with Defakto.** Register its attestation key, and add a token-exchange policy that lets the
-  device act on behalf of your IdP's users.
+- **Enroll the device with the attestor.** Add its secret or TEE key to the attestor's enrollment file (see
+  [The attestor](#the-attestor)).
+- **Enroll the device with Defakto.** Point an `extension` attestor at your attestor, and add a token-exchange policy
+  that lets the device act on behalf of your IdP's users.
 - **Fill in `firmware/cfg.toml`** (see `cfg.toml.example`). It holds the WiFi credentials, the IdP's device and
   token endpoints, the client ID, and the trust domain's issuer.
 - **Flash it.** See [Building the firmware](#building-the-firmware).
@@ -122,6 +124,74 @@ curl -X POST localhost:8081/reset
 for amd64 and arm64 and pushes it to `ghcr.io/dancavallaro/esp32-spiffe-rust/checkin`, tagged `latest` and with the
 version in `checkin/Cargo.toml`. Pass `--no-push` to only build.
 
+## The attestor
+
+`esp32-attestor` is an ESP32 extension attestor for Defakto. Defakto's `extension` attestor calls it as a webhook
+whenever a device attests, so its `webhookURL` is this service's `/attest` endpoint, and its CA certificate must
+trust the attestor's TLS certificate. It's the only thing that decides whether a device is genuine.
+
+**The webhook.** Defakto sends `POST /attest` with a JSON body of `{"payload": "<evidence>"}`. If the evidence
+checks out, the attestor answers with attributes, which Defakto exposes as `custom.*` for policies to match on. If
+it doesn't, the answer is still a 200, carrying only an `error`, because Defakto gives up on any other status
+without reading the reason. The real reason goes to the log. `GET /healthz` answers `ok`.
+
+**The anchors.** A device attests with one of two anchors, and always gets `device_id` and `anchor` back:
+
+| Anchor | `anchor` | How it's checked | Other attributes |
+| --- | --- | --- | --- |
+| HMAC | `nvs_secret` | An HMAC-SHA256 over `device_id\|ts\|nonce`, with the device's enrolled secret. | |
+| ESP-TEE | `tee` | The TEE's ECDSA P-256 signature, against the device's enrolled public key. | `app_version`, `app_digest`, `app_secure_version`, `tee_version`, `tee_digest`, `bootloader_digest`, `idf_version`, `secure_boot` |
+
+Evidence must be fresh, within `--skew` seconds of now. A repeated nonce gets the first answer again, because
+Defakto retries failed calls. `esp-attest/README.md` specifies the evidence formats, so read it if you're writing
+another signer.
+
+**Enrollment.** The enrollment file is a JSON object keyed by device ID. A device has a `secret` (32 bytes, base64),
+a `tee_pubkey` (compressed P-256, hex), or both, so it can switch attestors without enrolling again:
+
+```json
+{
+  "badge-reader-1": { "secret": "…", "tee_pubkey": "036d…b350" },
+  "badge-reader-2": { "secret": "…" }
+}
+```
+
+The `enroll` subcommands print entries to merge into it:
+
+```sh
+cargo run -p esp32-attestor -- enroll hmac badge-reader-1        # a new secret, its entry, and the nvs.csv to flash
+cargo run -p esp32-attestor -- enroll tee badge-reader-1 <key>   # the entry for the key in the device's boot log
+```
+
+The TEE key is the one the device prints at boot as `TEE attestation key: …`.
+
+**Running it.**
+
+```sh
+cargo run -p esp32-attestor -- serve --enrollment enrollment.json --tls-cert tls.crt --tls-key tls.key
+```
+
+| Flag | |
+| --- | --- |
+| `--listen` | Where to listen. The default is `0.0.0.0:8443`. |
+| `--tls-cert`, `--tls-key` | The TLS pair. The defaults are `/tls/tls.crt` and `/tls/tls.key`. |
+| `--enrollment` | The enrollment file. The default is `/enrollment/enrollment.json`. |
+| `--skew` | The most an evidence timestamp may differ from now, in seconds. The default is 60. |
+| `--reload-interval` | How often to check for changes, in seconds. The default is 30. |
+
+**Reloading.** The attestor polls the enrollment file and the TLS pair, and picks up a change without a restart. If
+the new file doesn't parse, it logs `keeping enrollment: …` (or `keeping TLS pair: …`) and carries on with the
+one it has. A good one logs `enrollment reloaded: N devices`. It polls rather than watching because Kubernetes
+updates a mounted Secret by swapping a symlink.
+
+The attestor is stricter than the Go one it replaced about malformed evidence, such as repeated keys or invalid
+UTF-8, but it accepts every genuine token the Go one did. `esp-attest/README.md` lists the differences.
+
+`attestor/build.sh` tests `esp-attest` and the attestor, then builds a container image for amd64 and arm64 and pushes
+it to `ghcr.io/dancavallaro/esp32-spiffe-rust/esp32-attestor`, tagged `latest` and with the version in
+`attestor/Cargo.toml`. Pass `--no-push` to only build. The image runs `serve`, so mount the enrollment file and the
+TLS pair at the default paths.
+
 ## Hardware
 
 The device is a Waveshare ESP32-C6-Touch-LCD-1.47. A tap on the screen or the BOOT button starts a check-in. A long
@@ -131,7 +201,8 @@ A Seeed XIAO ESP32C6 also works, headless and with TEE attestation only. It prin
 
 ## Development
 
-- `cargo test --workspace` runs the tests.
+- `cargo test --workspace` runs the tests, including `esp-attest`'s golden vectors and the attestor's.
+- `cargo run -p esp32-attestor -- serve …` runs the attestor, and `-- enroll …` prints enrollment entries.
 - `cargo run -p demo-host -- svid` and `cargo run -p demo-host -- login` run the same flow from a Mac, without the
   hardware.
 

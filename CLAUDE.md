@@ -5,20 +5,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A tech demo for the Waveshare ESP32-C6-Touch-LCD-1.47, written in Rust. The device shows a Defakto logo; tapping it
-shows a QR code for an OIDC device-flow login (Pocket ID at home, Auth0 on-site). The device then attests to Defakto's serverless API for a JWT-SVID
+shows a QR code for an OIDC device-flow login (Pocket ID at home, Auth0 on-site). The device then attests to
+Defakto's serverless API, which calls this repo's `esp32-attestor`, for a JWT-SVID
 (`spiffe://prod.cavallaro.local/iot/defakto-demo`), exchanges the user's ID token for an OBO token (RFC 8693), and shows
 its claims on screen. The demo's story is a check-in badge reader: when `checkin_url` is set, the device presents
 the OBO token to that check-in service as a bearer token, recording who checked in and through which device.
 
 ## Layout
 
-A Cargo workspace of four packages, plus the firmware as a separate project:
+A Cargo workspace of six packages, plus the firmware as a separate project:
 
-- `defakto/`: the Defakto client. It covers the attestors (`attest`, `evidence`, and `tee_evidence` for the
-  ESP-TEE envelope), the serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`,
-  `oauth`), and unverified JWT decoding. This crate is the seed of a Rust libcommon, so keep it free of
-  demo-specific code and of hardware. Anything a platform must supply goes behind a trait: `http::HttpClient` for
-  transport, `attest::HmacKey` for the HMAC key, `attest::TeeTokenSource` for the TEE's tokens.
+- `defakto/`: the Defakto client. It covers the attestors (`attest`, over `esp-attest`'s evidence formats), the
+  serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`, `oauth`), and unverified JWT
+  decoding. This crate is the seed of a Rust libcommon, so keep it free of demo-specific code and of hardware.
+  Anything a platform must supply goes behind a trait: `http::HttpClient` for transport, `attest::HmacKey` for the
+  HMAC key, `attest::TeeTokenSource` for the TEE's tokens.
+- `esp-attest/`: the evidence formats the device signs and the attestor verifies (device IDs, HMAC evidence, the
+  ESP-TEE envelope). Its `verify` feature adds the checks, so the firmware builds without P-256. It is also a seed
+  of libcommon, so the same rules apply as for `defakto`: no demo-specific code and no hardware. Its golden vectors
+  are in `esp-attest/README.md`.
+- `attestor/` (`esp32-attestor`): the webhook behind Defakto's `extension` attestor. It holds the webhook
+  (`webhook`, `verifier`), the enrollment file (`enrollment`), polling reload of the enrollment file and TLS pair
+  (`reload`), and the `enroll` subcommands (`enroll`). It builds into a container with `attestor/Dockerfile`, and
+  `attestor/build.sh` pushes it to ghcr, as for `checkin`. Bump `attestor/Cargo.toml`'s version for each release.
+  It serves real devices, so keep its behaviour compatible.
 - `demo/`: the demo's own logic, shared by host and firmware. It holds the device-code login (`login`), the
   orchestration with its polling and cancellation (`flow`), the screen state machine (`app`), tap and long-press
   detection (`gesture`), and what the result screen shows (`claims`).
@@ -54,6 +64,9 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   `DEMO_LOGIN_TOKEN_URL`, `DEMO_LOGIN_CLIENT_ID` (the two URLs come from the IdP's OIDC discovery document), and
   optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_REQUESTED_TOKEN_TYPE`, `DEMO_OBO_AUDIENCE`, `DEMO_CHECKIN_URL`,
   `DEMO_SERVERLESS_URL` and `DEMO_TOKEN_URL`.
+- Attestor: `cargo run -p esp32-attestor -- serve --enrollment … --tls-cert … --tls-key …` (the other flags have
+  defaults, see `--help`), and `cargo run -p esp32-attestor -- enroll hmac <device_id>` or `-- enroll tee <device_id>
+  <pubkey-hex>` for enrollment entries.
 - Check-in service: `cargo run -p checkin`, with settings from `CHECKIN_*` env vars or `checkin/.env`:
   `CHECKIN_ISSUER` and `CHECKIN_AUDIENCE`, plus optional comma-separated `CHECKIN_DEVICES` and
   `CHECKIN_USER_ISSUERS` allow-lists, `CHECKIN_LISTEN` and `CHECKIN_DATA`.
@@ -80,18 +93,18 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
 
 ## Constraints
 
-- **The HMAC evidence must stay byte-identical to `telemetry/pkg/espattest`.** That package is what the
-  `esp32-attestor` webhook verifies. The golden test in `defakto/src/attest.rs` comes from `esp32-enroll golden`.
-  If it fails, the format has drifted; don't change the expected value to make it pass. The same holds for the TEE
-  envelope, which must match what the `esp32-attestor` verifier expects. `tee_envelope_golden` in
-  `defakto/src/tee_evidence.rs` pins it with a token captured from the device (`defakto/testdata/`) and checks the
-  TEE's signature. Don't recapture it to make the test pass.
+- **The HMAC evidence and the TEE envelope must stay byte-compatible with what `esp-attest` verifies.** Its golden
+  vectors pin both: the HMAC one in `esp-attest/src/hmac.rs` and the TEE token captured from a device in
+  `esp-attest/testdata/` (see `esp-attest/README.md`). `defakto/src/attest.rs` has the device-side HMAC golden test.
+  Four libcommon devices (C++, `libcommon/src/spiffe_core.cpp`) sign the HMAC format in production, so a format change
+  breaks them too. If a golden test fails, the format has drifted; don't change the expected value or recapture the
+  token to make it pass. The attestor serves real devices, so its behaviour must stay compatible too.
 - **Attestation must stay swappable.** HMAC from an eFuse key and the ESP-TEE token must both sit behind
   `Attestor`, so the device can switch between them at runtime, and the host keeps software HMAC. Don't add anything that only works for
   HMAC.
 - **Never commit secrets:** `host/.env`, `firmware/cfg.toml`, `nvs.csv`, `nvs.bin` and `secret.bin` are
   gitignored.
 - **Dan makes every external change.** That covers the IdPs (Pocket ID, Auth0), `~/workspace/homelab` (the Terraform
-  `TokenExchangePolicy`, the enrollment parameter) and `~/workspace/telemetry`. Hand those steps over rather than
+  `TokenExchangePolicy`, the enrollment parameter) and `~/workspace/libcommon`. Hand those steps over rather than
   editing them.
 - **Burning an eFuse key is irreversible, and only Dan does it.**
