@@ -12,12 +12,20 @@ out=$(dirname "$elf")
 here=$(cd "$(dirname "$0")" && pwd)
 idf=${IDF_PATH:-$here/.embuild/esp-idf}
 # Cargo has used both build/esp-idf-sys-<hash>/ and build/esp-idf-sys/<hash>/.
-tee_bin=$(ls -t "$out"/build/esp-idf-sys*/out/build/esp_tee/esp_tee.bin \
-    "$out"/build/esp-idf-sys/*/out/build/esp_tee/esp_tee.bin 2>/dev/null | head -n 1)
-if [ -z "$tee_bin" ]; then
+tee_bins=$(ls "$out"/build/esp-idf-sys*/out/build/esp_tee/esp_tee.bin \
+    "$out"/build/esp-idf-sys/*/out/build/esp_tee/esp_tee.bin 2>/dev/null || true)
+case $(printf '%s' "$tee_bins" | grep -c .) in
+0)
     echo "no esp_tee.bin under $out/build; is CONFIG_SECURE_ENABLE_TEE set?" >&2
-    exit 1
-fi
+    exit 1 ;;
+1)
+    tee_bin=$tee_bins ;;
+*)
+    # A stale one may come from another ESP-IDF tree, and nothing says which is current.
+    echo "several esp_tee.bin under $out/build; run cargo clean --release -p esp-idf-sys:" >&2
+    echo "$tee_bins" >&2
+    exit 1 ;;
+esac
 
 python3 -I "$idf/components/partition_table/gen_esp32part.py" -q "$here/partitions.csv" "$out/partitions.bin"
 espflash save-image --chip esp32c6 "$elf" "$out/app.bin"
