@@ -5,7 +5,7 @@ use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 
-use crate::display::Strip;
+use crate::Target;
 
 const ART: [&str; 6] = ["██████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "██████╔╝", "╚═════╝ "];
 
@@ -13,7 +13,7 @@ const CELL_W: i32 = 10;
 const CELL_H: i32 = 12;
 pub const SIZE: Size = Size::new(8 * CELL_W as u32, ART.len() as u32 * CELL_H as u32);
 
-pub fn draw(target: &mut Strip, top_left: Point, color: Rgb565) {
+pub fn draw(target: &mut impl Target, top_left: Point, color: Rgb565) {
     for (row, line) in ART.iter().enumerate() {
         for (col, ch) in line.chars().enumerate() {
             let origin = top_left + Point::new(col as i32 * CELL_W, row as i32 * CELL_H);

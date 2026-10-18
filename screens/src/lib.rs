@@ -1,14 +1,12 @@
-//! Draws the demo's screens on the LCD, following the approved mockups.
+//! The demo's screens, drawn with embedded-graphics onto any `Rgb565` target
+//! the size of the panel: the device's display strips, or a host framebuffer
+//! for screenshots.
 
 mod logo;
-mod qr;
+pub mod qr;
 
-use std::cell::Cell;
-use std::f32::consts::TAU;
 use std::ops::Range;
-use std::time::Instant;
 
-use anyhow::Result;
 use demo::app::{Progress, Screen, Status, Step};
 use demo::claims::DisplayClaims;
 use demo::text::{abbreviate, countdown, without_scheme, wrap, wrap_at_most};
@@ -20,7 +18,13 @@ use embedded_graphics::primitives::{Circle, PrimitiveStyle, Polyline, Rectangle}
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyleBuilder};
 use qrcodegen::QrCode;
 
-use crate::display::{Display, Strip, HEIGHT, WIDTH};
+/// The JD9853 panel's size in pixels.
+pub const WIDTH: u16 = 172;
+pub const HEIGHT: u16 = 320;
+
+pub trait Target: DrawTarget<Color = Rgb565> {}
+
+impl<D: DrawTarget<Color = Rgb565>> Target for D {}
 
 const BG: Rgb565 = rgb(0x0c0816);
 const BAR_BG: Rgb565 = rgb(0x160f26);
@@ -44,76 +48,25 @@ const BAR_H: u32 = 20;
 const BAR_INSET: Point = Point::new(12, 6);
 const LOGO_TOP: i32 = 64;
 const TAP_TOP: u16 = 280;
-const TAP_ROWS: Range<u16> = TAP_TOP..TAP_TOP + 10;
+/// The rows of the idle screen's pulsing prompt.
+pub const TAP_ROWS: Range<u16> = TAP_TOP..TAP_TOP + 10;
 const FOOTER_TOP: i32 = 302;
 /// What fits between the error heading and the footer.
 const MAX_DETAIL_LINES: usize = 12;
 const BAR_TRACK_W: u32 = 144;
-const PULSE_SECS: f32 = 1.6;
-
-pub struct Ui {
-    display: Display,
-    epoch: Instant,
-    qr: Option<(String, QrCode)>,
-    drawn_at: i64,
-    /// The rows of the last screen drawn that change each second.
-    ticking: Option<(i32, i32)>,
-}
 
 /// Everything a screen is drawn from.
-struct Frame<'a> {
-    screen: &'a Screen,
-    status: &'a Status,
-    now: i64,
-    pulse: f32,
-    qr: Option<&'a QrCode>,
-}
-
-impl Ui {
-    pub fn new(display: Display) -> Self {
-        Self { display, epoch: Instant::now(), qr: None, drawn_at: 0, ticking: None }
-    }
-
-    pub fn render(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
-        self.render_rows(0..HEIGHT, screen, status, now)
-    }
-
-    /// Redraws what moves on `screen`: the idle prompt every frame, and the
-    /// countdowns once a second. Only those rows, because touch isn't polled
-    /// while drawing and a full redraw is long enough to miss a tap.
-    pub fn animate(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
-        match (screen, self.ticking) {
-            (Screen::Idle, _) => self.render_rows(TAP_ROWS, screen, status, now),
-            (_, Some((top, bottom))) if now != self.drawn_at => {
-                self.render_rows(top as u16..bottom as u16, screen, status, now)
-            }
-            _ => Ok(()),
-        }
-    }
-
-    fn render_rows(&mut self, rows: Range<u16>, screen: &Screen, status: &Status, now: i64) -> Result<()> {
-        if let Screen::Qr { uri, .. } = screen {
-            if self.qr.as_ref().is_none_or(|(cached, _)| cached != uri) {
-                self.qr = qr::encode(uri).map(|code| (uri.clone(), code));
-            }
-        }
-        let frame = Frame { screen, status, now, pulse: self.pulse(), qr: self.qr.as_ref().map(|(_, code)| code) };
-        self.drawn_at = now;
-        let ticking = Cell::new(None);
-        self.display.draw(rows, |s| ticking.set(draw(s, &frame)))?;
-        self.ticking = ticking.get();
-        Ok(())
-    }
-
-    /// Opacity of the tap prompt, easing between 1.0 and 0.35.
-    fn pulse(&self) -> f32 {
-        let phase = self.epoch.elapsed().as_secs_f32() / PULSE_SECS;
-        0.675 + 0.325 * (TAU * phase).cos()
-    }
+pub struct Frame<'a> {
+    pub screen: &'a Screen,
+    pub status: &'a Status,
+    pub now: i64,
+    /// The tap prompt's opacity, from 0.0 to 1.0.
+    pub pulse: f32,
+    pub qr: Option<&'a QrCode>,
 }
 
 /// Draws the whole screen, returning the rows of its countdown, if it has one.
-fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
+pub fn draw(s: &mut impl Target, f: &Frame) -> Option<(i32, i32)> {
     let _ = s.clear(BG);
     status_bar(s, f.status);
     match f.screen {
@@ -129,7 +82,7 @@ fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
     None
 }
 
-fn status_bar(s: &mut Strip, status: &Status) {
+fn status_bar(s: &mut impl Target, status: &Status) {
     fill(s, Rectangle::new(Point::zero(), Size::new(WIDTH as u32, BAR_H)), BAR_BG);
     let (mut x, y) = (BAR_INSET.x, BAR_INSET.y);
     for (name, ok) in [("WiFi", status.wifi), ("SVID", status.svid)] {
@@ -143,7 +96,7 @@ fn status_bar(s: &mut Strip, status: &Status) {
     text(s, &status.attestor, Point::new(WIDTH as i32 - BAR_INSET.x, y), &BODY, DIM, Alignment::Right);
 }
 
-fn idle(s: &mut Strip, status: &Status, pulse: f32) {
+fn idle(s: &mut impl Target, status: &Status, pulse: f32) {
     logo::draw(s, Point::new(CENTER_X - logo::SIZE.width as i32 / 2, LOGO_TOP), PURPLE);
     let word_top = LOGO_TOP + logo::SIZE.height as i32 + 12;
     text(s, "defakto", Point::new(CENTER_X, word_top), &WORDMARK, FG, Alignment::Center);
@@ -158,7 +111,7 @@ fn idle(s: &mut Strip, status: &Status, pulse: f32) {
 }
 
 /// The QR code and its fallbacks. `left` and `lifetime` are in seconds.
-fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lifetime): (i64, i64)) -> (i32, i32) {
+fn sign_in(s: &mut impl Target, qr: Option<&QrCode>, uri: &str, code: &str, (left, lifetime): (i64, i64)) -> (i32, i32) {
     let mut y = BAR_H as i32 + 8;
     y = centered(s, "Scan to sign in", y, &HEADING, FG) + 6;
     match qr {
@@ -181,7 +134,7 @@ fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lif
     (y, bottom)
 }
 
-fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {
+fn result(s: &mut impl Target, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {
     let mut y = centered(s, &c.greeting, BAR_H as i32 + 10, &BIG, FG) + 10;
     if checked_in {
         y = checked_in_banner(s, y) + 10;
@@ -205,7 +158,7 @@ fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32,
 }
 
 /// A check mark beside "checked in", centered at `y`. Returns the y below it.
-fn checked_in_banner(s: &mut Strip, y: i32) -> i32 {
+fn checked_in_banner(s: &mut impl Target, y: i32) -> i32 {
     const LABEL: &str = "checked in";
     const MARK_W: i32 = 18;
     let width = MARK_W + LABEL.len() as i32 * HEADING.character_size.width as i32;
@@ -215,7 +168,7 @@ fn checked_in_banner(s: &mut Strip, y: i32) -> i32 {
     y + HEADING.character_size.height as i32
 }
 
-fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
+fn progress(s: &mut impl Target, p: &Progress, attestor: &str) {
     let mut y = centered(s, "Checking in...", BAR_H as i32 + 20, &HEADING, FG) + 20;
     let rows = [
         Some((p.attested, "device attested", attestor)),
@@ -235,7 +188,7 @@ fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
 
 /// A check for done, an ellipsis for active, a hollow dot for pending. Drawn
 /// as shapes because the fonts have no ✓ or …
-fn step_mark(s: &mut Strip, step: Step, at: Point) {
+fn step_mark(s: &mut impl Target, step: Step, at: Point) {
     match step {
         Step::Done => {
             let points = [at + Point::new(0, 6), at + Point::new(4, 10), at + Point::new(11, 1)];
@@ -253,7 +206,7 @@ fn step_mark(s: &mut Strip, step: Step, at: Point) {
 }
 
 /// A centered heading, plus an optional detail paragraph under it.
-fn message(s: &mut Strip, heading: &str, detail: Option<&str>) {
+fn message(s: &mut impl Target, heading: &str, detail: Option<&str>) {
     let color = if detail.is_some() { WARN } else { FG };
     let mut y = centered(s, heading, 120, &HEADING, color) + 10;
     if let Some(detail) = detail {
@@ -266,15 +219,15 @@ fn message(s: &mut Strip, heading: &str, detail: Option<&str>) {
 
 /// Draws `str` centered and wrapped to the content width, returning the y
 /// below it.
-fn centered(s: &mut Strip, str: &str, y: i32, font: &MonoFont, color: Rgb565) -> i32 {
+fn centered(s: &mut impl Target, str: &str, y: i32, font: &MonoFont, color: Rgb565) -> i32 {
     lines(s, str, y, font, color, Alignment::Center)
 }
 
-fn paragraph(s: &mut Strip, str: &str, y: i32, color: Rgb565, alignment: Alignment) -> i32 {
+fn paragraph(s: &mut impl Target, str: &str, y: i32, color: Rgb565, alignment: Alignment) -> i32 {
     lines(s, str, y, &BODY, color, alignment)
 }
 
-fn lines(s: &mut Strip, str: &str, mut y: i32, font: &MonoFont, color: Rgb565, alignment: Alignment) -> i32 {
+fn lines(s: &mut impl Target, str: &str, mut y: i32, font: &MonoFont, color: Rgb565, alignment: Alignment) -> i32 {
     let x = if alignment == Alignment::Center { CENTER_X } else { MARGIN };
     for line in wrap(str, columns(font)) {
         text(s, &line, Point::new(x, y), font, color, alignment);
@@ -287,12 +240,12 @@ fn columns(font: &MonoFont) -> usize {
     (CONTENT_W / (font.character_size.width + font.character_spacing) as i32) as usize
 }
 
-fn text(s: &mut Strip, str: &str, at: Point, font: &MonoFont, color: Rgb565, alignment: Alignment) {
+fn text(s: &mut impl Target, str: &str, at: Point, font: &MonoFont, color: Rgb565, alignment: Alignment) {
     let style = TextStyleBuilder::new().alignment(alignment).baseline(Baseline::Top).build();
     let _ = Text::with_text_style(str, at, MonoTextStyle::new(font, color), style).draw(s);
 }
 
-fn fill(s: &mut Strip, area: Rectangle, color: Rgb565) {
+fn fill(s: &mut impl Target, area: Rectangle, color: Rgb565) {
     let _ = area.into_styled(PrimitiveStyle::with_fill(color)).draw(s);
 }
 

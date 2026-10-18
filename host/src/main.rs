@@ -3,8 +3,10 @@
 //! optionally loaded from `host/.env`.
 
 mod http;
+mod render;
 
 use std::env;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -34,6 +36,14 @@ enum Command {
     /// Run the full device login and OBO token exchange, then check in if
     /// `DEMO_CHECKIN_URL` is set.
     Login,
+    /// Render the device's screens to PNGs from sample data.
+    Render {
+        #[arg(long, default_value = "renders")]
+        out: PathBuf,
+        /// Output pixels per panel pixel.
+        #[arg(long, default_value_t = 4)]
+        scale: u32,
+    },
 }
 
 fn main() -> Result<()> {
@@ -48,6 +58,7 @@ fn main() -> Result<()> {
             print_claims(&svid.token)?;
         }
         Command::Login => login(&mut http, &cfg)?,
+        Command::Render { out, scale } => render::render_all(&out, scale)?,
     }
     Ok(())
 }

@@ -60,5 +60,7 @@ A Seeed XIAO ESP32C6 also works, headless and with TEE attestation only. It prin
 - `cargo test --workspace` runs the tests.
 - `cargo run -p demo-host -- svid` and `cargo run -p demo-host -- login` run the same flow from a Mac, without the
   hardware.
+- `cargo run -p demo-host -- render` writes pixel-exact PNGs of the device's screens to `renders/`, drawn by the
+  firmware's own drawing code from sample data.
 
 `CLAUDE.md` covers the code layout, the ESP-IDF patch and the TEE flashing details.

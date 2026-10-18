@@ -6,7 +6,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use qrcodegen::{QrCode, QrCodeEcc};
 
-use crate::display::Strip;
+use crate::Target;
 
 const QUIET_ZONE: i32 = 2;
 const MAX_PX: i32 = 150;
@@ -21,7 +21,7 @@ pub fn size(qr: &QrCode) -> i32 {
     modules * (MAX_PX / modules)
 }
 
-pub fn draw(s: &mut Strip, qr: &QrCode, top_left: Point) {
+pub fn draw(s: &mut impl Target, qr: &QrCode, top_left: Point) {
     let modules = qr.size() + 2 * QUIET_ZONE;
     let scale = MAX_PX / modules;
     let mut square = |x: i32, y: i32, w: i32, color| {

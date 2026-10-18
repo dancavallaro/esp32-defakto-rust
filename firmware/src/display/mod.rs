@@ -17,8 +17,8 @@ use esp_idf_svc::hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver, L
 use esp_idf_svc::hal::spi::{config, Dma, SpiDeviceDriver, SpiDriver, SPI2};
 use esp_idf_svc::hal::units::Hertz;
 
-pub const WIDTH: u16 = 172;
-pub const HEIGHT: u16 = 320;
+use screens::{HEIGHT, WIDTH};
+
 const STRIP_ROWS: u16 = 32;
 const STRIP_BYTES: usize = WIDTH as usize * STRIP_ROWS as usize * 2;
 const BRIGHTNESS_PERCENT: u32 = 80;

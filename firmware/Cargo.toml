@@ -22,6 +22,7 @@ opt-level = "z"
 [dependencies]
 defakto = { path = "../defakto" }
 demo = { path = "../demo" }
+screens = { path = "../screens" }
 esp-idf-svc = "0.53"
 anyhow = "1"
 log = "0.4"

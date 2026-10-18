@@ -1,0 +1,9 @@
+[package]
+name = "screens"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+demo = { path = "../demo" }
+embedded-graphics = "0.8"
+qrcodegen = "1.8"

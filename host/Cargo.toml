@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 defakto = { path = "../defakto" }
 demo = { path = "../demo" }
+screens = { path = "../screens" }
+embedded-graphics = "0.8"
+png = "0.17"
 anyhow = "1"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }

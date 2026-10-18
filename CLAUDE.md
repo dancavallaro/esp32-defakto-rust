@@ -12,7 +12,7 @@ the OBO token to that attendance service as a bearer token, recording who checke
 
 ## Layout
 
-A Cargo workspace of three packages, plus the firmware as a separate project:
+A Cargo workspace of four packages, plus the firmware as a separate project:
 
 - `defakto/`: the Defakto client. It covers the attestors (`attest`, `evidence`, and `tee_evidence` for the
   ESP-TEE envelope), the serverless JWT-SVID call (`serverless`, `grpcweb`), token exchange (`token_exchange`,
@@ -22,12 +22,15 @@ A Cargo workspace of three packages, plus the firmware as a separate project:
 - `demo/`: the demo's own logic, shared by host and firmware. It holds the device-code login (`login`), the
   orchestration with its polling and cancellation (`flow`), the screen state machine (`app`), tap and long-press
   detection (`gesture`), and what the result screen shows (`claims`).
+- `screens/`: draws each screen with embedded-graphics onto any `Rgb565` target the panel's size. The firmware
+  draws into display strips, and the host draws into a framebuffer for screenshots.
 - `host/` (`demo-host`): a Mac CLI that runs the same flow against the live servers before any hardware is
-  involved. It has two subcommands: `svid` and `login`.
+  involved. It has three subcommands: `svid`, `login`, and `render`, which writes each screen to a PNG from
+  made-up sample data.
 - `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
   workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
   from `firmware/cfg.toml` (see `cfg.toml.example`) at build time. `display` drives the JD9853 panel one
-  strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens. `console.rs` also prints
+  strip at a time (there's no RAM for a full framebuffer) and `ui` puts `screens` on it, redrawing only what changes. `console.rs` also prints
   each screen to serial (the QR code as text), and is the only output with `--features xiao`. `touch` polls the
   AXS5106L, and `demo::gesture` turns its samples into taps and long presses. The BOOT button (GPIO9) also taps.
   A long press on the idle screen switches the attestor between `efuse` (the default) and `tee` and re-attests; the choice
@@ -47,6 +50,8 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   `DEMO_LOGIN_TOKEN_URL`, `DEMO_LOGIN_CLIENT_ID` (the two URLs come from the IdP's OIDC discovery document), and
   optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_REQUESTED_TOKEN_TYPE`, `DEMO_OBO_AUDIENCE`, `DEMO_CHECKIN_URL`,
   `DEMO_SERVERLESS_URL` and `DEMO_TOKEN_URL`.
+- Screenshots: `cargo run -p demo-host -- render` writes PNGs of the screens to `renders/` (gitignored); `--out`
+  and `--scale` change where and how large.
 - Toolchain: the rustup proxies in `~/.cargo/bin` must come before Homebrew's `cargo` on PATH. Homebrew's
   stable-only Rust ignores `rust-toolchain.toml`, so it can't build the firmware.
 - ESP-IDF: before the first firmware build, run `firmware/patch-idf.sh`. It sets up `firmware/.embuild/esp-idf`

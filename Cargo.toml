@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["defakto", "demo", "host"]
+members = ["defakto", "demo", "screens", "host"]
 exclude = ["firmware"]
