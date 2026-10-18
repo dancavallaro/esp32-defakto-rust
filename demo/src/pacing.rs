@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::app::{Event, Screen};
 
-pub const STEP_DWELL: Duration = Duration::from_millis(2000);
+pub const STEP_DWELL: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
 pub struct Pacer {
@@ -62,8 +62,8 @@ mod tests {
         assert_eq!(p.next(&progress(Step::Active), ms(5000)), None);
         p.push(Event::SvidReady);
         assert_eq!(p.next(&progress(Step::Active), ms(5100)), None);
-        assert_eq!(p.next(&progress(Step::Active), ms(6999)), None);
-        assert_eq!(p.next(&progress(Step::Active), ms(7000)), Some(Event::SvidReady));
+        assert_eq!(p.next(&progress(Step::Active), ms(6499)), None);
+        assert_eq!(p.next(&progress(Step::Active), ms(6500)), Some(Event::SvidReady));
     }
 
     #[test]
@@ -72,10 +72,10 @@ mod tests {
         p.next(&progress(Step::Active), ms(0));
         p.push(Event::SvidReady);
         p.push(Event::Failed("x".into()));
-        assert_eq!(p.next(&progress(Step::Active), ms(2000)), Some(Event::SvidReady));
-        assert_eq!(p.next(&progress(Step::Done), ms(2000)), None);
-        assert_eq!(p.next(&progress(Step::Done), ms(3999)), None);
-        assert_eq!(p.next(&progress(Step::Done), ms(4000)), Some(Event::Failed("x".into())));
+        assert_eq!(p.next(&progress(Step::Active), ms(1500)), Some(Event::SvidReady));
+        assert_eq!(p.next(&progress(Step::Done), ms(1500)), None);
+        assert_eq!(p.next(&progress(Step::Done), ms(2999)), None);
+        assert_eq!(p.next(&progress(Step::Done), ms(3000)), Some(Event::Failed("x".into())));
     }
 
     #[test]
