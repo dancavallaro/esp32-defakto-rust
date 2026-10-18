@@ -1,5 +1,5 @@
 # Name,         Type, SubType, Offset,  Size
-# nvs stays at 0x9000 so the HMAC secret survives the move to the TEE layout.
+# nvs stays at 0x9000 so WiFi data and the saved attestor survive the move to the TEE layout.
 nvs,            data, nvs,     0x9000,  0x6000
 phy_init,       data, phy,     0xf000,  0x1000
 tee,            app,  tee_0,   0x10000, 192K
