@@ -21,18 +21,18 @@ const KINDS: [&str; 2] = ["efuse", "tee"];
 pub const FALLBACK: &str = "efuse";
 
 pub struct Attestors {
-    device_id: &'static str,
+    device_id: String,
     efuse_key: u8,
     nvs: EspDefaultNvsPartition,
 }
 
 impl Attestors {
-    pub fn new(device_id: &'static str, efuse_key: u8, nvs: EspDefaultNvsPartition) -> Self {
+    pub fn new(device_id: String, efuse_key: u8, nvs: EspDefaultNvsPartition) -> Self {
         Self { device_id, efuse_key, nvs }
     }
 
     pub fn build(&self, kind: &str) -> Result<Box<dyn Attestor>> {
-        let id = self.device_id.into();
+        let id = self.device_id.clone();
         match kind {
             "efuse" => Ok(Box::new(HmacAttestor::new(id, EfuseHmacKey::new(self.efuse_key)?, "eFuse HMAC"))),
             "tee" => {

@@ -29,6 +29,10 @@ pub enum Screen {
     Progress(Progress),
     Result { claims: DisplayClaims, checked_in: bool },
     Error(String),
+    /// The setup wizard's network, and the portal it serves.
+    Setup { ssid: String, password: String, portal: String },
+    /// The wizard saved new settings and the device is restarting.
+    Restarting,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -317,6 +321,17 @@ mod tests {
         assert_eq!(app.handle(Event::LongPress), Command::None, "a second press mid-switch");
         app.handle(Event::AttestorChanged { label: "ESP-TEE".into(), svid: true });
         assert_eq!(app.status, Status { wifi: true, svid: true, attestor: "ESP-TEE".into(), switching: false });
+    }
+
+    #[test]
+    fn setup_ignores_input() {
+        let mut app = App::new(Status::default());
+        app.screen = Screen::Setup { ssid: "s".into(), password: "p".into(), portal: "http://192.168.4.1".into() };
+        let before = app.screen.clone();
+        for ev in [Event::Tap, Event::LongPress, Event::Failed("x".into()), started()] {
+            app.handle(ev);
+            assert_eq!(app.screen, before);
+        }
     }
 
     #[test]

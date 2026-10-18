@@ -6,6 +6,7 @@ mod console;
 mod display;
 mod http;
 mod net;
+mod setup;
 mod tee;
 #[cfg(not(feature = "xiao"))]
 mod touch;
@@ -17,11 +18,13 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use demo::app::{App, Event, Status};
+use demo::app::{App, Event, Screen, Status};
 use demo::flow;
-use demo::gesture::Gesture;
+use demo::gesture::{Detector, Gesture};
+use demo::setup::Settings;
 use demo::pacing::Pacer;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
+use esp_idf_svc::hal::modem::Modem;
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use log::{error, info, warn};
@@ -33,6 +36,10 @@ use crate::worker::{Active, EspClock, Worker};
 
 const POLL: Duration = Duration::from_millis(20);
 const RESTART_DELAY: Duration = Duration::from_secs(5);
+/// How long after boot a press can start that, held, opens the setup wizard.
+const SETUP_HOLD_WINDOW: Duration = Duration::from_secs(1);
+/// Long enough for the portal's "saved" page to reach the phone.
+const SAVED_RESTART_DELAY: Duration = Duration::from_secs(2);
 
 // Puts the crate version in the image header, which the TEE reports as `sw_claims.app.ver`.
 esp_idf_svc::sys::esp_app_desc!();
@@ -76,8 +83,18 @@ fn run() -> Result<()> {
     #[cfg(feature = "xiao")]
     let mut screens = Screens::new();
 
-    let cfg = config::flow_config();
-    let attestors = Attestors::new(CONFIG.device_id, CONFIG.efuse_hmac_key, nvs.clone());
+    let mut button = button::Button::new(peripherals.pins.gpio9)?;
+    #[cfg(not(feature = "xiao"))]
+    let mut touch = touch::Touch::new(
+        peripherals.i2c0,
+        peripherals.pins.gpio18,
+        peripherals.pins.gpio19,
+        peripherals.pins.gpio20,
+    )?;
+
+    let settings = config::load(&nvs);
+    let cfg = settings.flow_config();
+    let attestors = Attestors::new(settings.device_id.clone(), CONFIG.efuse_hmac_key, nvs.clone());
     let mut kind = attestors.saved(CONFIG.default_attestor);
     // Failing here would restart forever on a board whose saved backend is broken.
     let attestor = match attestors.build(&kind) {
@@ -92,7 +109,16 @@ fn run() -> Result<()> {
     app.checks_in = cfg.checkin_url.is_some();
     screens.show(&app);
 
-    let net = net::connect(peripherals.modem, sysloop, nvs.clone())?;
+    #[cfg(not(feature = "xiao"))]
+    let held = held_at_boot(|| button.is_down() || touch.is_down().unwrap_or(false));
+    #[cfg(feature = "xiao")]
+    let held = held_at_boot(|| button.is_down());
+    if let Some(why) = if held { Some("held at boot".into()) } else { settings.validate().err() } {
+        info!("setting up: {why}");
+        return run_wizard(peripherals.modem, sysloop, nvs, settings, &mut screens);
+    }
+
+    let net = net::connect(peripherals.modem, sysloop, nvs.clone(), &settings.wifi_ssid, &settings.wifi_psk)?;
     info!("time {} (unix)", net::unix_now());
     app.status.wifi = true;
     screens.show(&app);
@@ -110,14 +136,6 @@ fn run() -> Result<()> {
 
     let (events_tx, events) = mpsc::channel();
     let worker = Worker::spawn(cfg, attestors, Active { kind, attestor }, events_tx)?;
-    let mut button = button::Button::new(peripherals.pins.gpio9)?;
-    #[cfg(not(feature = "xiao"))]
-    let mut touch = touch::Touch::new(
-        peripherals.i2c0,
-        peripherals.pins.gpio18,
-        peripherals.pins.gpio19,
-        peripherals.pins.gpio20,
-    )?;
     let mut pacer = Pacer::default();
     let epoch = Instant::now();
 
@@ -150,6 +168,42 @@ fn run() -> Result<()> {
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// Whether a press that starts within `SETUP_HOLD_WINDOW` of boot is held
+/// into a long press, which reruns the setup wizard.
+fn held_at_boot(mut down: impl FnMut() -> bool) -> bool {
+    let mut detector = Detector::default();
+    let start = Instant::now();
+    loop {
+        let is_down = down();
+        if detector.update(is_down, start.elapsed()) == Some(Gesture::LongPress) {
+            return true;
+        }
+        if !is_down && start.elapsed() > SETUP_HOLD_WINDOW {
+            return false;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+/// Serves the setup wizard until it saves new settings, then restarts with them.
+fn run_wizard(
+    modem: Modem<'static>,
+    sysloop: EspSystemEventLoop,
+    nvs: EspDefaultNvsPartition,
+    current: Settings,
+    screens: &mut Screens,
+) -> Result<()> {
+    let (portal, saved) = setup::start(modem, sysloop, nvs, current)?;
+    let mut app = App::new(Status::default());
+    app.screen = Screen::Setup { ssid: portal.ssid.clone(), password: portal.password.clone(), portal: portal.url.clone() };
+    screens.show(&app);
+    let _ = saved.recv();
+    app.screen = Screen::Restarting;
+    screens.show(&app);
+    std::thread::sleep(SAVED_RESTART_DELAY);
+    unsafe { esp_idf_svc::sys::esp_restart() };
 }
 
 /// Where screens go: the serial console always, since it also carries the QR

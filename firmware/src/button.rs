@@ -13,10 +13,14 @@ impl Button {
         Ok(Self { pin: PinDriver::input(pin, Pull::Up)?, was_down: false })
     }
 
+    pub fn is_down(&self) -> bool {
+        self.pin.is_low()
+    }
+
     /// True once per press; poll it every few tens of milliseconds, which also
     /// debounces it.
     pub fn pressed(&mut self) -> bool {
-        let down = self.pin.is_low();
+        let down = self.is_down();
         let pressed = down && !self.was_down;
         self.was_down = down;
         pressed

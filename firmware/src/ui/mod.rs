@@ -11,6 +11,7 @@ use std::time::Instant;
 use anyhow::Result;
 use demo::app::{Progress, Screen, Status, Step};
 use demo::claims::DisplayClaims;
+use demo::setup::wifi_qr;
 use demo::text::{abbreviate, countdown, without_scheme, wrap, wrap_at_most};
 use embedded_graphics::mono_font::iso_8859_1::{FONT_10X20, FONT_6X10, FONT_8X13};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
@@ -92,9 +93,14 @@ impl Ui {
     }
 
     fn render_rows(&mut self, rows: Range<u16>, screen: &Screen, status: &Status, now: i64) -> Result<()> {
-        if let Screen::Qr { uri, .. } = screen {
-            if self.qr.as_ref().is_none_or(|(cached, _)| cached != uri) {
-                self.qr = qr::encode(uri).map(|code| (uri.clone(), code));
+        let qr_text = match screen {
+            Screen::Qr { uri, .. } => Some(uri.clone()),
+            Screen::Setup { ssid, password, .. } => Some(wifi_qr(ssid, password)),
+            _ => None,
+        };
+        if let Some(text) = qr_text {
+            if self.qr.as_ref().is_none_or(|(cached, _)| *cached != text) {
+                self.qr = qr::encode(&text).map(|code| (text, code));
             }
         }
         let frame = Frame { screen, status, now, pulse: self.pulse(), qr: self.qr.as_ref().map(|(_, code)| code) };
@@ -125,6 +131,8 @@ fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
         Screen::Progress(p) => progress(s, p, &f.status.attestor),
         Screen::Result { claims, checked_in } => return Some(result(s, claims, *checked_in, f.now)),
         Screen::Error(msg) => message(s, "Check-in failed", Some(msg)),
+        Screen::Setup { ssid, password, portal } => setup(s, f.qr, ssid, password, portal),
+        Screen::Restarting => message(s, "Saved. Restarting...", None),
     }
     None
 }
@@ -179,6 +187,21 @@ fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lif
     fill(s, Rectangle::new(track.top_left, Size::new(filled as u32, 4)), PURPLE);
     let bottom = centered(s, &format!("{} \u{b7} tap to cancel", countdown(left)), y + 10, &BODY, DIM);
     (y, bottom)
+}
+
+/// The QR code that joins the setup network, and what to type without one.
+fn setup(s: &mut Strip, qr: Option<&QrCode>, ssid: &str, password: &str, portal: &str) {
+    let mut y = BAR_H as i32 + 8;
+    y = centered(s, "Set up this device", y, &HEADING, FG) + 6;
+    if let Some(qr) = qr {
+        qr::draw(s, qr, Point::new(CENTER_X - qr::size(qr) / 2, y));
+        y += qr::size(qr) + 8;
+    }
+    y = centered(s, "SCAN, OR JOIN", y, &BODY, DIM) + 2;
+    y = centered(s, ssid, y, &BODY, FG) + 6;
+    y = centered(s, "PASSWORD", y, &BODY, DIM) + 2;
+    y = centered(s, password, y, &BIG, PURPLE) + 8;
+    centered(s, &format!("then open {}", without_scheme(portal)), y, &BODY, DIM);
 }
 
 fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {

@@ -42,10 +42,14 @@ impl Touch {
     }
 
     pub fn poll(&mut self) -> Result<Option<Gesture>> {
+        let down = self.is_down()?;
+        Ok(self.detector.update(down, self.epoch.elapsed()))
+    }
+
+    pub fn is_down(&mut self) -> Result<bool> {
         let mut data = [0u8; 14];
         self.read(TOUCH_POINTS_REG, &mut data)?;
-        let down = data[1] & 0x0F != 0;
-        Ok(self.detector.update(down, self.epoch.elapsed()))
+        Ok(data[1] & 0x0F != 0)
     }
 
     /// The controller wants a stop between the register write and the read,

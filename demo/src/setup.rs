@@ -1,0 +1,394 @@
+//! The setup wizard: the settings its portal edits, how they're checked and
+//! stored, and the page that edits them. The firmware serves the page from its
+//! own access point, so a device needs nothing configured before it's flashed.
+
+use std::fmt::Write;
+
+use crate::flow;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    Text,
+    Password,
+    Url,
+}
+
+pub struct Field {
+    pub key: &'static str,
+    pub section: &'static str,
+    pub label: &'static str,
+    pub help: &'static str,
+    pub kind: Kind,
+    pub required: bool,
+    /// Shown folded away, since the defaults suit every IdP so far.
+    pub advanced: bool,
+}
+
+const fn field(key: &'static str, section: &'static str, label: &'static str, help: &'static str, kind: Kind) -> Field {
+    Field { key, section, label, help, kind, required: true, advanced: false }
+}
+
+pub const FIELDS: &[Field] = &[
+    field("wifi_ssid", "WiFi", "Network", "", Kind::Text),
+    Field { required: false, ..field("wifi_psk", "WiFi", "Password", "Blank for an open network.", Kind::Password) },
+    field("login_device_url", "Sign-in", "Device authorization endpoint", "From the IdP's OIDC discovery document.", Kind::Url),
+    field("login_token_url", "Sign-in", "Token endpoint", "From the same discovery document.", Kind::Url),
+    field("login_client_id", "Sign-in", "Client ID", "", Kind::Text),
+    field("svid_audience", "Defakto", "Trust domain issuer", "The iss of the trust domain's JWT-SVIDs.", Kind::Url),
+    field("device_id", "Defakto", "Device ID", "As enrolled with the attestor.", Kind::Text),
+    field("obo_audience", "Defakto", "OBO audience", "Who the OBO token is for.", Kind::Text),
+    Field { advanced: true, ..field("subject_token_type", "Defakto", "Subject token type", "", Kind::Text) },
+    Field { advanced: true, ..field("requested_token_type", "Defakto", "Requested token type", "", Kind::Text) },
+    Field {
+        required: false,
+        ..field("checkin_url", "Check-in", "Check-in endpoint", "Blank to stop at the token exchange.", Kind::Url)
+    },
+];
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Settings {
+    pub wifi_ssid: String,
+    pub wifi_psk: String,
+    pub login_device_url: String,
+    pub login_token_url: String,
+    pub login_client_id: String,
+    pub svid_audience: String,
+    pub device_id: String,
+    pub obo_audience: String,
+    pub subject_token_type: String,
+    pub requested_token_type: String,
+    /// Empty for none.
+    pub checkin_url: String,
+}
+
+impl Settings {
+    pub fn get(&self, key: &str) -> Option<&str> {
+        Some(match key {
+            "wifi_ssid" => &self.wifi_ssid,
+            "wifi_psk" => &self.wifi_psk,
+            "login_device_url" => &self.login_device_url,
+            "login_token_url" => &self.login_token_url,
+            "login_client_id" => &self.login_client_id,
+            "svid_audience" => &self.svid_audience,
+            "device_id" => &self.device_id,
+            "obo_audience" => &self.obo_audience,
+            "subject_token_type" => &self.subject_token_type,
+            "requested_token_type" => &self.requested_token_type,
+            "checkin_url" => &self.checkin_url,
+            _ => return None,
+        })
+    }
+
+    fn slot(&mut self, key: &str) -> Option<&mut String> {
+        Some(match key {
+            "wifi_ssid" => &mut self.wifi_ssid,
+            "wifi_psk" => &mut self.wifi_psk,
+            "login_device_url" => &mut self.login_device_url,
+            "login_token_url" => &mut self.login_token_url,
+            "login_client_id" => &mut self.login_client_id,
+            "svid_audience" => &mut self.svid_audience,
+            "device_id" => &mut self.device_id,
+            "obo_audience" => &mut self.obo_audience,
+            "subject_token_type" => &mut self.subject_token_type,
+            "requested_token_type" => &mut self.requested_token_type,
+            "checkin_url" => &mut self.checkin_url,
+            _ => return None,
+        })
+    }
+
+    /// How the settings are kept in NVS: the same encoding the form posts.
+    pub fn to_form(&self) -> String {
+        let mut form = form_urlencoded::Serializer::new(String::new());
+        for f in FIELDS {
+            form.append_pair(f.key, self.get(f.key).unwrap_or_default());
+        }
+        form.finish()
+    }
+
+    /// These settings with any fields `form` names replaced. Unknown keys are
+    /// ignored, so settings saved by a newer build still load.
+    pub fn overlaid(&self, form: &str) -> Settings {
+        let mut out = self.clone();
+        for (key, value) in form_urlencoded::parse(form.as_bytes()) {
+            if let Some(slot) = out.slot(&key) {
+                // A WiFi password may begin or end with a space.
+                *slot = if key == "wifi_psk" { value.into_owned() } else { value.trim().to_owned() };
+            }
+        }
+        out
+    }
+
+    /// What the portal's form makes of these settings, or why it can't be
+    /// saved. The password field starts blank, so a blank one keeps the saved
+    /// password unless the network changed too.
+    pub fn submit(&self, form: &str) -> Result<Settings, String> {
+        let mut next = self.overlaid(form);
+        if next.wifi_psk.is_empty() && next.wifi_ssid == self.wifi_ssid {
+            next.wifi_psk.clone_from(&self.wifi_psk);
+        }
+        next.validate()?;
+        Ok(next)
+    }
+
+    /// Whether the device can run the demo with these, or the first reason it can't.
+    pub fn validate(&self) -> Result<(), String> {
+        for f in FIELDS {
+            let value = self.get(f.key).unwrap_or_default();
+            if value.is_empty() {
+                if f.required {
+                    return Err(format!("{} is required.", f.label));
+                }
+                continue;
+            }
+            if f.kind == Kind::Url && !(value.starts_with("https://") || value.starts_with("http://")) {
+                return Err(format!("{} must be an http(s) URL.", f.label));
+            }
+        }
+        if self.wifi_ssid.len() > 32 {
+            return Err("The network name is over 32 bytes.".into());
+        }
+        if !self.wifi_psk.is_empty() && !(8..=63).contains(&self.wifi_psk.len()) {
+            return Err("A WiFi password has 8 to 63 characters.".into());
+        }
+        Ok(())
+    }
+
+    pub fn flow_config(&self) -> flow::Config {
+        flow::Config {
+            serverless_url: flow::SERVERLESS_URL.into(),
+            token_url: flow::TOKEN_URL.into(),
+            svid_audience: self.svid_audience.clone(),
+            login_device_url: self.login_device_url.clone(),
+            login_token_url: self.login_token_url.clone(),
+            login_client_id: self.login_client_id.clone(),
+            subject_token_type: self.subject_token_type.clone(),
+            requested_token_type: self.requested_token_type.clone(),
+            obo_audience: self.obo_audience.clone(),
+            checkin_url: Some(self.checkin_url.clone()).filter(|url| !url.is_empty()),
+        }
+    }
+}
+
+/// The text of a QR code that joins a phone to the network, as iOS and
+/// Android cameras read it.
+pub fn wifi_qr(ssid: &str, psk: &str) -> String {
+    format!("WIFI:T:WPA;S:{};P:{};;", wifi_escape(ssid), wifi_escape(psk))
+}
+
+fn wifi_escape(s: &str) -> String {
+    s.chars().fold(String::new(), |mut out, c| {
+        if matches!(c, '\\' | ';' | ',' | ':' | '"') {
+            out.push('\\');
+        }
+        out.push(c);
+        out
+    })
+}
+
+/// No 0/o, 1/l/i, so the password can be typed off the screen.
+const PASSWORD_ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+
+/// The setup network's password, one character per random byte.
+pub fn ap_password(random: &[u8]) -> String {
+    random.iter().map(|b| PASSWORD_ALPHABET[*b as usize % PASSWORD_ALPHABET.len()] as char).collect()
+}
+
+const STYLE: &str = "body{font:16px system-ui,sans-serif;background:#0c0816;color:#e9e4f5;margin:0 auto;\
+max-width:32rem;padding:1rem}h1{font-size:1.4rem}h2{font-size:1rem;color:#a07cff;margin:1.5rem 0 .5rem}\
+label{display:block;margin:.75rem 0 .25rem}input{box-sizing:border-box;width:100%;padding:.6rem;\
+font:inherit;border:1px solid #2a2140;border-radius:6px;background:#160f26;color:inherit}\
+small{color:#7d7690}summary{margin-top:1rem;color:#7d7690}.err{background:#4a2a10;color:#ffcf5c;\
+padding:.75rem;border-radius:6px}button{margin-top:1.5rem;width:100%;padding:.8rem;font:inherit;\
+font-weight:600;border:0;border-radius:6px;background:#a07cff;color:#0c0816}";
+
+/// The portal's form, filled in from `current`. `networks` are offered for
+/// the WiFi network, and `error` is why the last submission was refused.
+pub fn page(current: &Settings, networks: &[String], error: Option<&str>) -> String {
+    let mut html = head("Set up");
+    html.push_str("<h1>Set up this device</h1>");
+    if let Some(error) = error {
+        let _ = write!(html, "<p class=err>{}</p>", escape(error));
+    }
+    html.push_str("<form method=post action=/>");
+    let mut section = "";
+    let mut folded = false;
+    for f in FIELDS {
+        if f.advanced && !folded {
+            html.push_str("<details><summary>Advanced</summary>");
+            folded = true;
+        } else if !f.advanced && folded {
+            html.push_str("</details>");
+            folded = false;
+        }
+        if f.section != section {
+            let _ = write!(html, "<h2>{}</h2>", f.section);
+            section = f.section;
+        }
+        input(&mut html, f, current);
+    }
+    if folded {
+        html.push_str("</details>");
+    }
+    html.push_str("<datalist id=networks>");
+    for n in networks {
+        let _ = write!(html, "<option value=\"{}\">", escape(n));
+    }
+    html.push_str("</datalist><button>Save and restart</button></form></body></html>");
+    html
+}
+
+fn input(html: &mut String, f: &Field, current: &Settings) {
+    let value = current.get(f.key).unwrap_or_default();
+    let (kind, value, extra) = match f.kind {
+        // Never sent back: anyone who reaches the portal would read it.
+        Kind::Password => ("password", "", if value.is_empty() { "" } else { " placeholder=\"unchanged\"" }),
+        Kind::Url => ("url", value, ""),
+        Kind::Text if f.key == "wifi_ssid" => ("text", value, " list=networks"),
+        Kind::Text => ("text", value, ""),
+    };
+    let required = if f.required { " required" } else { "" };
+    let _ = write!(
+        html,
+        "<label for={key}>{label}</label><input id={key} name={key} type={kind} value=\"{value}\" \
+         autocapitalize=off autocorrect=off spellcheck=false{extra}{required}>",
+        key = f.key,
+        label = f.label,
+        value = escape(value),
+    );
+    if !f.help.is_empty() {
+        let _ = write!(html, "<small>{}</small>", f.help);
+    }
+}
+
+/// What the portal shows once the settings are saved.
+pub fn saved_page() -> String {
+    head("Saved") + "<h1>Saved</h1><p>The device is restarting with the new settings. \
+     You can leave this network.</p></body></html>"
+}
+
+fn head(title: &str) -> String {
+    format!(
+        "<!doctype html><html><head><meta charset=utf-8>\
+         <meta name=viewport content=\"width=device-width,initial-scale=1\">\
+         <title>{title}</title><style>{STYLE}</style></head><body>"
+    )
+}
+
+fn escape(s: &str) -> String {
+    s.chars().fold(String::new(), |mut out, c| {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+        out
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn complete() -> Settings {
+        Settings {
+            wifi_ssid: "home".into(),
+            wifi_psk: "hunter22".into(),
+            login_device_url: "https://idp/device".into(),
+            login_token_url: "https://idp/token".into(),
+            login_client_id: "client".into(),
+            svid_audience: "https://td".into(),
+            device_id: "defakto-demo".into(),
+            obo_audience: "defakto-demo".into(),
+            subject_token_type: "urn:ietf:params:oauth:token-type:id_token".into(),
+            requested_token_type: "urn:defakto:security:token-type:jwt-svid-obo".into(),
+            checkin_url: String::new(),
+        }
+    }
+
+    #[test]
+    fn every_field_has_a_slot() {
+        let mut s = Settings::default();
+        for f in FIELDS {
+            assert!(s.slot(f.key).is_some(), "{}", f.key);
+        }
+    }
+
+    #[test]
+    fn stored_form_round_trips() {
+        let s = Settings { checkin_url: "https://checkin/x?a=b&c=d".into(), wifi_psk: " a;b=c& ".into(), ..complete() };
+        assert_eq!(Settings::default().overlaid(&s.to_form()), s);
+    }
+
+    #[test]
+    fn overlay_keeps_unnamed_fields_and_ignores_unknown_keys() {
+        let s = complete().overlaid("login_client_id=+other+&from_the_future=1");
+        assert_eq!(s, Settings { login_client_id: "other".into(), ..complete() });
+    }
+
+    #[test]
+    fn blank_password_keeps_the_saved_one_on_the_same_network() {
+        let s = complete().submit("wifi_ssid=home&wifi_psk=").unwrap();
+        assert_eq!(s.wifi_psk, "hunter22");
+    }
+
+    #[test]
+    fn blank_password_on_a_new_network_means_open() {
+        let s = complete().submit("wifi_ssid=cafe&wifi_psk=").unwrap();
+        assert_eq!((s.wifi_ssid.as_str(), s.wifi_psk.as_str()), ("cafe", ""));
+    }
+
+    #[test]
+    fn submit_refuses_what_validate_refuses() {
+        assert_eq!(complete().submit("login_client_id=").unwrap_err(), "Client ID is required.");
+        assert_eq!(complete().submit("checkin_url=checkin.local").unwrap_err(), "Check-in endpoint must be an http(s) URL.");
+        assert_eq!(complete().submit("wifi_psk=short").unwrap_err(), "A WiFi password has 8 to 63 characters.");
+    }
+
+    #[test]
+    fn optional_fields_may_be_blank() {
+        assert_eq!(Settings { wifi_psk: String::new(), ..complete() }.validate(), Ok(()));
+        assert_eq!(complete().flow_config().checkin_url, None);
+        let s = Settings { checkin_url: "https://c/checkin".into(), ..complete() };
+        assert_eq!(s.flow_config().checkin_url.as_deref(), Some("https://c/checkin"));
+    }
+
+    #[test]
+    fn defaults_alone_are_incomplete() {
+        assert!(Settings::default().validate().is_err());
+    }
+
+    #[test]
+    fn wifi_qr_escapes_its_delimiters() {
+        assert_eq!(wifi_qr("a;b", r#"p:w,"\"#), r#"WIFI:T:WPA;S:a\;b;P:p\:w\,\"\\;;"#);
+    }
+
+    #[test]
+    fn ap_password_avoids_lookalikes() {
+        let pw = ap_password(&[0, 1, 30, 31]);
+        assert_eq!(pw, "ab9a");
+        assert!(!ap_password(&(0..=255).collect::<Vec<u8>>()).contains(['0', 'o', '1', 'l', 'i']));
+    }
+
+    #[test]
+    fn page_escapes_values_and_hides_the_password() {
+        let s = Settings { login_client_id: "\"><script>".into(), ..complete() };
+        let html = page(&s, &["<net>".into()], Some("bad & worse"));
+        assert!(html.contains("value=\"&quot;&gt;&lt;script&gt;\""));
+        assert!(html.contains("<option value=\"&lt;net&gt;\">"));
+        assert!(html.contains("<p class=err>bad &amp; worse</p>"));
+        assert!(!html.contains("hunter22"));
+        assert!(html.contains("placeholder=\"unchanged\""));
+    }
+
+    #[test]
+    fn page_posts_every_field() {
+        let html = page(&complete(), &[], None);
+        for f in FIELDS {
+            assert!(html.contains(&format!(" name={} ", f.key)), "{}", f.key);
+        }
+        assert_eq!(html.matches("<details>").count(), html.matches("</details>").count());
+    }
+}

@@ -12,8 +12,6 @@ use esp_idf_svc::sys::{esp, esp_wifi_connect};
 use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiEvent};
 use log::{info, warn};
 
-use crate::config::CONFIG;
-
 const SNTP_TIMEOUT: Duration = Duration::from_secs(30);
 /// 2024-01-01: anything earlier means the clock was never set.
 const EARLIEST_VALID_TIME: u64 = 1_704_067_200;
@@ -32,16 +30,22 @@ impl Net {
     }
 }
 
-pub fn connect(modem: Modem<'static>, sysloop: EspSystemEventLoop, nvs: EspDefaultNvsPartition) -> Result<Net> {
+pub fn connect(
+    modem: Modem<'static>,
+    sysloop: EspSystemEventLoop,
+    nvs: EspDefaultNvsPartition,
+    ssid: &str,
+    psk: &str,
+) -> Result<Net> {
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sysloop.clone(), Some(nvs))?, sysloop.clone())?;
     wifi.set_configuration(&Configuration::Client(ClientConfiguration {
-        ssid: CONFIG.wifi_ssid.try_into().map_err(|_| anyhow::anyhow!("wifi_ssid too long"))?,
-        password: CONFIG.wifi_psk.try_into().map_err(|_| anyhow::anyhow!("wifi_psk too long"))?,
-        auth_method: if CONFIG.wifi_psk.is_empty() { AuthMethod::None } else { AuthMethod::WPA2Personal },
+        ssid: ssid.try_into().map_err(|_| anyhow::anyhow!("wifi_ssid too long"))?,
+        password: psk.try_into().map_err(|_| anyhow::anyhow!("wifi_psk too long"))?,
+        auth_method: if psk.is_empty() { AuthMethod::None } else { AuthMethod::WPA2Personal },
         ..Default::default()
     }))?;
     wifi.start()?;
-    info!("joining {:?}", CONFIG.wifi_ssid);
+    info!("joining {ssid:?}");
     wifi.connect().context("WiFi connect")?;
     wifi.wait_netif_up()?;
     let ip = wifi.wifi().sta_netif().get_ip_info()?;

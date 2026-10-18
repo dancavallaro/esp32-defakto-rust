@@ -1,4 +1,6 @@
-# Copy to cfg.toml (gitignored) and fill in. Read at build time by toml-cfg.
+# Copy to cfg.toml (gitignored). Read at build time by toml-cfg. Every value is
+# optional: the setup wizard edits them on the device and saves them in NVS,
+# which wins over this file. The wizard runs when settings are missing.
 [demo-firmware]
 wifi_ssid = ""
 wifi_psk = ""

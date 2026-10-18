@@ -2,6 +2,7 @@
 //! `println!` rather than `log` so log prefixes don't skew the QR code.
 
 use demo::app::{Screen, Status};
+use demo::setup::wifi_qr;
 use qrcodegen::{QrCode, QrCodeEcc};
 
 const QUIET_ZONE: i32 = 2;
@@ -32,6 +33,11 @@ pub fn render(screen: &Screen, status: &Status) {
             println!("Press BOOT to start over.");
         }
         Screen::Error(msg) => println!("\nCheck-in failed: {msg}\nPress BOOT to start over."),
+        Screen::Setup { ssid, password, portal } => {
+            print_qr(&wifi_qr(ssid, password));
+            println!("Set up this device: scan, or join {ssid} with password {password}, then open {portal}.");
+        }
+        Screen::Restarting => println!("Saved. Restarting…"),
     }
 }
 
