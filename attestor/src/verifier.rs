@@ -29,10 +29,10 @@ pub enum Anchor {
 }
 
 impl Anchor {
-    /// The `anchor` attribute, which Defakto policies match on.
+    /// The `anchor` attribute, which Defakto policies match on, and the anchor's name in the log.
     fn attribute(self) -> &'static str {
         match self {
-            Anchor::Hmac => "nvs_secret",
+            Anchor::Hmac => "hmac",
             Anchor::Tee => "tee",
         }
     }
@@ -263,10 +263,7 @@ impl Attempt {
 
 impl fmt::Display for Anchor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Anchor::Hmac => "hmac",
-            Anchor::Tee => "tee",
-        })
+        f.write_str(self.attribute())
     }
 }
 
@@ -387,7 +384,7 @@ mod tests {
     fn accepts_genuine_evidence() {
         let (got, decision) = hmac_verifier().attest(&genuine(), at(NOW));
 
-        assert_eq!(got, response(&[("anchor", "nvs_secret"), ("device_id", DEVICE_ID)]));
+        assert_eq!(got, response(&[("anchor", "hmac"), ("device_id", DEVICE_ID)]));
         assert_eq!(decision.outcome, Outcome::Accepted);
         assert_eq!(decision.anchor, Some(Anchor::Hmac));
         assert_eq!(decision.device_id.as_deref(), Some(DEVICE_ID));
@@ -668,7 +665,7 @@ mod tests {
         let evidence = signed_with_nonce(GOLDEN_DEVICE_ID, GOLDEN_NOW, GOLDEN_NONCE, &SECRET);
         let (got, decision) = v.attest(&evidence, at(GOLDEN_NOW));
 
-        assert_eq!(got, response(&[("device_id", GOLDEN_DEVICE_ID), ("anchor", "nvs_secret")]));
+        assert_eq!(got, response(&[("device_id", GOLDEN_DEVICE_ID), ("anchor", "hmac")]));
         assert_eq!(decision.outcome, Outcome::Accepted);
     }
 

@@ -139,7 +139,7 @@ without reading the reason. The real reason goes to the log. `GET /healthz` answ
 
 | Anchor | `anchor` | How it's checked | Other attributes |
 | --- | --- | --- | --- |
-| HMAC | `nvs_secret` | An HMAC-SHA256 over `device_id\|ts\|nonce`, with the device's enrolled secret. | |
+| HMAC | `hmac` | An HMAC-SHA256 over `device_id\|ts\|nonce`, with the device's enrolled secret. | |
 | ESP-TEE | `tee` | The TEE's ECDSA P-256 signature, against the device's enrolled public key. | `app_version`, `app_digest`, `app_secure_version`, `tee_version`, `tee_digest`, `bootloader_digest`, `idf_version`, `secure_boot` |
 
 Evidence must be fresh, within `--skew` seconds of now. A repeated nonce gets the first answer again, because
