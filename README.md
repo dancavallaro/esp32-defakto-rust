@@ -41,7 +41,30 @@ The firmware is open source. To deploy it, you:
   device act on behalf of your IdP's users.
 - **Fill in `firmware/cfg.toml`** (see `cfg.toml.example`). It holds the WiFi credentials, the IdP's device and
   token endpoints, the client ID, and the trust domain's issuer.
-- **Flash it.** From `firmware/`, run `cargo run --release`.
+- **Flash it.** See [Building the firmware](#building-the-firmware).
+
+## Building the firmware
+
+On a Mac, you need:
+
+- **Xcode's command line tools**, for git, Python 3 and a C compiler: `xcode-select --install`.
+- **rustup**, from [rustup.rs](https://rustup.rs). The firmware builds on nightly, which `firmware/rust-toolchain.toml`
+  pins and rustup installs on the first build. Homebrew's `rust` formula won't work, because it ignores that file. If
+  you have it, put `~/.cargo/bin` ahead of it on your `PATH`.
+- **ldproxy and espflash**, which link and flash the firmware: `cargo install --locked ldproxy espflash`. `flash.sh`
+  needs espflash 4 or later.
+
+Then, from `firmware/`:
+
+```sh
+./patch-idf.sh                  # once: fetches ESP-IDF v5.5.5 and applies the TEE flash-read fix
+cp cfg.toml.example cfg.toml    # then fill it in
+cargo run --release             # builds, flashes and opens the serial monitor
+```
+
+The first build also downloads ESP-IDF's toolchain (the RISC-V compiler, cmake and ninja) into `firmware/.embuild/`,
+so it takes a while. On a board's first TEE flash, use `TEE_PROVISION=1 cargo run --release`, which gives the TEE a
+fresh attestation key to enroll.
 
 ## The check-in endpoint
 
