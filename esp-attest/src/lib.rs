@@ -7,6 +7,10 @@ mod device_id;
 pub mod evidence;
 pub mod hmac;
 pub mod tee;
+#[cfg(feature = "verify")]
+pub mod tee_verify;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 pub use device_id::validate_device_id;
 

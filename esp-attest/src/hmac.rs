@@ -160,9 +160,8 @@ mod tests {
         fn libcommon_evidence_verifies() {
             let raw = r#"{"device_id":"defakto-demo","ts":1792200000,"nonce":"0011223344556677","mac":"b8eead1bcca6bc6368900c976dab032c0a7f8b8ac1427667e337904cf7a6c033"}"#;
             let secret: Vec<u8> = (0u8..32).collect();
-            match parse_evidence(raw.as_bytes()).unwrap() {
-                Evidence::Hmac(e) => assert!(e.verify(&secret)),
-            }
+            let Evidence::Hmac(e) = parse_evidence(raw.as_bytes()).unwrap() else { panic!("not HMAC evidence") };
+            assert!(e.verify(&secret));
         }
     }
 }
