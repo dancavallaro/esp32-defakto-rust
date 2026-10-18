@@ -29,6 +29,7 @@ fn declare_app_desc_cfgs() {
 
 /// An unpatched ESP-IDF still builds, but the TEE then loses its attestation key on every boot.
 fn check_idf_patched() {
+    println!("cargo:rerun-if-env-changed=IDF_PATH");
     let idf = std::env::var("IDF_PATH").expect("IDF_PATH comes from .cargo/config.toml");
     let file = Path::new(&idf).join("components/bootloader_support/bootloader_flash/src/bootloader_flash.c");
     println!("cargo:rerun-if-changed={}", file.display());
