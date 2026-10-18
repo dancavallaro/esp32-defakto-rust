@@ -208,7 +208,7 @@ fn setup(s: &mut Strip, qr: Option<&QrCode>, ssid: &str, password: &str, portal:
 fn provisioning(s: &mut Strip, p: &Provisioning) {
     let (heading, color, detail) = match p {
         Provisioning::Checking => ("Checking DevID...", FG, None),
-        Provisioning::Configured(developer) => ("Set up by", OK, Some(developer.as_str())),
+        Provisioning::Configured(developer) => return set_up_by(s, developer),
         Provisioning::Refused(why) => ("Settings refused", WARN, Some(why.as_str())),
     };
     let mut y = centered(s, heading, 120, &HEADING, color) + 10;
@@ -219,10 +219,24 @@ fn provisioning(s: &mut Strip, p: &Provisioning) {
     centered(s, footer, FOOTER_TOP, &BODY, DIM);
 }
 
+/// Who the DevID says set the device up, laid out like the check-in receipt.
+fn set_up_by(s: &mut Strip, developer: &str) {
+    let path = developer.strip_prefix("spiffe://").unwrap_or(developer);
+    let (trust_domain, name) = (path.split('/').next().unwrap_or(path), path.rsplit('/').next().unwrap_or(path));
+    let mut y = centered(s, "Set up by", BAR_H as i32 + 30, &HEADING, DIM) + 6;
+    y = centered(s, name, y, &BIG, FG) + 10;
+    y = banner(s, "verified DevID", y) + 24;
+    for (label, value) in [("DEVELOPER", developer), ("TRUST DOMAIN", trust_domain)] {
+        y = paragraph(s, label, y, DIM, Alignment::Left) + 1;
+        y = paragraph(s, value, y, FG, Alignment::Left) + 7;
+    }
+    centered(s, "restarting...", FOOTER_TOP, &BODY, DIM);
+}
+
 fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32, i32) {
     let mut y = centered(s, &c.greeting, BAR_H as i32 + 10, &BIG, FG) + 10;
     if checked_in {
-        y = checked_in_banner(s, y) + 10;
+        y = banner(s, "checked in", y) + 10;
     }
     let txn = c.txn.as_deref().map(|t| abbreviate(t, columns(&BODY)));
     let rows = [
@@ -242,14 +256,13 @@ fn result(s: &mut Strip, c: &DisplayClaims, checked_in: bool, now: i64) -> (i32,
     (y, bottom)
 }
 
-/// A check mark beside "checked in", centered at `y`. Returns the y below it.
-fn checked_in_banner(s: &mut Strip, y: i32) -> i32 {
-    const LABEL: &str = "checked in";
+/// A check mark beside `label`, centered at `y`. Returns the y below it.
+fn banner(s: &mut Strip, label: &str, y: i32) -> i32 {
     const MARK_W: i32 = 18;
-    let width = MARK_W + LABEL.len() as i32 * HEADING.character_size.width as i32;
+    let width = MARK_W + label.len() as i32 * HEADING.character_size.width as i32;
     let left = CENTER_X - width / 2;
     step_mark(s, Step::Done, Point::new(left, y + 1));
-    text(s, LABEL, Point::new(left + MARK_W, y), &HEADING, OK, Alignment::Left);
+    text(s, label, Point::new(left + MARK_W, y), &HEADING, OK, Alignment::Left);
     y + HEADING.character_size.height as i32
 }
 
