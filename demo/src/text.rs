@@ -30,6 +30,18 @@ pub fn wrap(s: &str, cols: usize) -> Vec<String> {
 }
 
 /// `secs` as `m:ss`, clamped at zero.
+/// Like `wrap`, but at most `max_lines`, the last ending in "..." if text was cut.
+pub fn wrap_at_most(s: &str, cols: usize, max_lines: usize) -> Vec<String> {
+    let mut lines = wrap(s, cols);
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        if let Some(last) = lines.last_mut() {
+            *last = last.chars().take(cols.saturating_sub(3)).chain("...".chars()).collect();
+        }
+    }
+    lines
+}
+
 pub fn countdown(secs: i64) -> String {
     let secs = secs.max(0);
     format!("{}:{:02}", secs / 60, secs % 60)
@@ -54,6 +66,22 @@ pub fn without_scheme(url: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_at_most_ends_a_cut_text_with_an_ellipsis() {
+        let lines = wrap_at_most("one two three four five six", 9, 2);
+        assert_eq!(lines, vec!["one two", "three..."]);
+    }
+
+    #[test]
+    fn wrap_at_most_keeps_a_short_text_whole() {
+        assert_eq!(wrap_at_most("one two", 9, 2), vec!["one two"]);
+    }
+
+    #[test]
+    fn wrap_at_most_fits_the_ellipsis_in_a_full_line() {
+        assert_eq!(wrap_at_most("abcdefghi jklmnopqr stu", 9, 2), vec!["abcdefghi", "jklmno..."]);
+    }
 
     #[test]
     fn wrap_breaks_long_words_anywhere() {

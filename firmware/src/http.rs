@@ -54,6 +54,6 @@ impl HttpClient for EspClient {
     }
 }
 
-fn err(e: impl std::fmt::Debug) -> HttpError {
-    HttpError(format!("{e:?}"))
+fn err(e: impl std::fmt::Display) -> HttpError {
+    HttpError(e.to_string())
 }

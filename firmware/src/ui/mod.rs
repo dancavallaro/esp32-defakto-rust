@@ -3,6 +3,7 @@
 mod logo;
 mod qr;
 
+use std::cell::Cell;
 use std::f32::consts::TAU;
 use std::ops::Range;
 use std::time::Instant;
@@ -10,7 +11,7 @@ use std::time::Instant;
 use anyhow::Result;
 use demo::app::{Progress, Screen, Status, Step};
 use demo::claims::DisplayClaims;
-use demo::text::{abbreviate, countdown, without_scheme, wrap};
+use demo::text::{abbreviate, countdown, without_scheme, wrap, wrap_at_most};
 use embedded_graphics::mono_font::iso_8859_1::{FONT_10X20, FONT_6X10, FONT_8X13};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::pixelcolor::Rgb565;
@@ -45,6 +46,8 @@ const LOGO_TOP: i32 = 64;
 const TAP_TOP: u16 = 280;
 const TAP_ROWS: Range<u16> = TAP_TOP..TAP_TOP + 10;
 const FOOTER_TOP: i32 = 302;
+/// What fits between the error heading and the footer.
+const MAX_DETAIL_LINES: usize = 12;
 const BAR_TRACK_W: u32 = 144;
 const PULSE_SECS: f32 = 1.6;
 
@@ -53,6 +56,8 @@ pub struct Ui {
     epoch: Instant,
     qr: Option<(String, QrCode)>,
     drawn_at: i64,
+    /// The rows of the last screen drawn that change each second.
+    ticking: Option<(i32, i32)>,
 }
 
 /// Everything a screen is drawn from.
@@ -66,7 +71,7 @@ struct Frame<'a> {
 
 impl Ui {
     pub fn new(display: Display) -> Self {
-        Self { display, epoch: Instant::now(), qr: None, drawn_at: 0 }
+        Self { display, epoch: Instant::now(), qr: None, drawn_at: 0, ticking: None }
     }
 
     pub fn render(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
@@ -74,11 +79,14 @@ impl Ui {
     }
 
     /// Redraws what moves on `screen`: the idle prompt every frame, and the
-    /// countdowns once a second. Cheap enough to call every frame.
+    /// countdowns once a second. Only those rows, because touch isn't polled
+    /// while drawing and a full redraw is long enough to miss a tap.
     pub fn animate(&mut self, screen: &Screen, status: &Status, now: i64) -> Result<()> {
-        match screen {
-            Screen::Idle => self.render_rows(TAP_ROWS, screen, status, now),
-            Screen::Qr { .. } | Screen::Result(_) if now != self.drawn_at => self.render(screen, status, now),
+        match (screen, self.ticking) {
+            (Screen::Idle, _) => self.render_rows(TAP_ROWS, screen, status, now),
+            (_, Some((top, bottom))) if now != self.drawn_at => {
+                self.render_rows(top as u16..bottom as u16, screen, status, now)
+            }
             _ => Ok(()),
         }
     }
@@ -91,7 +99,10 @@ impl Ui {
         }
         let frame = Frame { screen, status, now, pulse: self.pulse(), qr: self.qr.as_ref().map(|(_, code)| code) };
         self.drawn_at = now;
-        self.display.draw(rows, |s| draw(s, &frame))
+        let ticking = Cell::new(None);
+        self.display.draw(rows, |s| ticking.set(draw(s, &frame)))?;
+        self.ticking = ticking.get();
+        Ok(())
     }
 
     /// Opacity of the tap prompt, easing between 1.0 and 0.35.
@@ -101,19 +112,21 @@ impl Ui {
     }
 }
 
-fn draw(s: &mut Strip, f: &Frame) {
+/// Draws the whole screen, returning the rows of its countdown, if it has one.
+fn draw(s: &mut Strip, f: &Frame) -> Option<(i32, i32)> {
     let _ = s.clear(BG);
     status_bar(s, f.status);
     match f.screen {
         Screen::Idle => idle(s, f.status, f.pulse),
         Screen::Starting => message(s, "Contacting the identity provider...", None),
         Screen::Qr { verification_uri, user_code, issued_at, expires_at, .. } => {
-            sign_in(s, f.qr, verification_uri, user_code, (*expires_at - f.now, *expires_at - *issued_at))
+            return Some(sign_in(s, f.qr, verification_uri, user_code, (*expires_at - f.now, *expires_at - *issued_at)))
         }
         Screen::Progress(p) => progress(s, p, &f.status.attestor),
-        Screen::Result(claims) => result(s, claims, f.now),
+        Screen::Result(claims) => return Some(result(s, claims, f.now)),
         Screen::Error(msg) => message(s, "Sign-in failed", Some(msg)),
     }
+    None
 }
 
 fn status_bar(s: &mut Strip, status: &Status) {
@@ -136,12 +149,16 @@ fn idle(s: &mut Strip, status: &Status, pulse: f32) {
     text(s, "defakto", Point::new(CENTER_X, word_top), &WORDMARK, FG, Alignment::Center);
     let tap = blend(FG, BG, pulse);
     text(s, "[ tap to sign in ]", Point::new(CENTER_X, TAP_TOP as i32), &BODY, tap, Alignment::Center);
-    let footer = if status.svid { format!("attested via {}", status.attestor) } else { "not attested".into() };
+    let footer = match (status.switching, status.svid) {
+        (true, _) => "switching attestor...".into(),
+        (false, true) => format!("attested via {}", status.attestor),
+        (false, false) => "not attested".into(),
+    };
     text(s, &footer, Point::new(CENTER_X, FOOTER_TOP), &BODY, DIM, Alignment::Center);
 }
 
 /// The QR code and its fallbacks. `left` and `lifetime` are in seconds.
-fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lifetime): (i64, i64)) {
+fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lifetime): (i64, i64)) -> (i32, i32) {
     let mut y = BAR_H as i32 + 8;
     y = centered(s, "Scan to sign in", y, &HEADING, FG) + 6;
     match qr {
@@ -160,10 +177,11 @@ fn sign_in(s: &mut Strip, qr: Option<&QrCode>, uri: &str, code: &str, (left, lif
     fill(s, track, TRACK);
     let filled = BAR_TRACK_W as i64 * left.clamp(0, lifetime) / lifetime.max(1);
     fill(s, Rectangle::new(track.top_left, Size::new(filled as u32, 4)), PURPLE);
-    centered(s, &format!("{} \u{b7} tap to cancel", countdown(left)), y + 10, &BODY, DIM);
+    let bottom = centered(s, &format!("{} \u{b7} tap to cancel", countdown(left)), y + 10, &BODY, DIM);
+    (y, bottom)
 }
 
-fn result(s: &mut Strip, c: &DisplayClaims, now: i64) {
+fn result(s: &mut Strip, c: &DisplayClaims, now: i64) -> (i32, i32) {
     let mut y = centered(s, &c.greeting, BAR_H as i32 + 10, &BIG, FG) + 10;
     let txn = c.txn.as_deref().map(|t| abbreviate(t, columns(&BODY)));
     let rows = [
@@ -172,13 +190,15 @@ fn result(s: &mut Strip, c: &DisplayClaims, now: i64) {
         ("ACTOR (THIS DEVICE)", Some(c.actor.as_str())),
         ("TXN", txn.as_deref()),
     ];
-    let expires = format!("in {}", countdown(c.exp - now));
-    for (label, value) in rows.into_iter().chain([("EXPIRES", Some(expires.as_str()))]) {
+    for (label, value) in rows {
         let Some(value) = value else { continue };
         y = paragraph(s, label, y, DIM, Alignment::Left) + 1;
         y = paragraph(s, value, y, FG, Alignment::Left) + 7;
     }
+    y = paragraph(s, "EXPIRES", y, DIM, Alignment::Left) + 1;
+    let bottom = paragraph(s, &format!("in {}", countdown(c.exp - now)), y, FG, Alignment::Left);
     centered(s, "tap to reset", FOOTER_TOP, &BODY, DIM);
+    (y, bottom)
 }
 
 fn progress(s: &mut Strip, p: &Progress, attestor: &str) {
@@ -220,9 +240,11 @@ fn step_mark(s: &mut Strip, step: Step, at: Point) {
 /// A centered heading, plus an optional detail paragraph under it.
 fn message(s: &mut Strip, heading: &str, detail: Option<&str>) {
     let color = if detail.is_some() { WARN } else { FG };
-    let y = centered(s, heading, 120, &HEADING, color) + 10;
+    let mut y = centered(s, heading, 120, &HEADING, color) + 10;
     if let Some(detail) = detail {
-        centered(s, detail, y, &BODY, FG);
+        for line in wrap_at_most(detail, columns(&BODY), MAX_DETAIL_LINES) {
+            y = centered(s, &line, y, &BODY, FG);
+        }
         centered(s, "tap to start over", FOOTER_TOP, &BODY, DIM);
     }
 }

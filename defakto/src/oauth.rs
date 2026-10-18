@@ -17,6 +17,17 @@ pub enum OAuthError {
     Missing(&'static str),
 }
 
+/// The start of a body that wasn't what we expected, which may be a whole HTML
+/// error page from a proxy.
+fn glimpse(body: &[u8]) -> String {
+    const MAX_CHARS: usize = 60;
+    let body = String::from_utf8_lossy(body);
+    if body.chars().count() <= MAX_CHARS {
+        return body.into_owned();
+    }
+    body.chars().take(MAX_CHARS).chain("...".chars()).collect()
+}
+
 pub fn form(pairs: &[(&str, &str)]) -> String {
     form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs).finish()
 }
@@ -29,9 +40,7 @@ pub fn parse_json<T: serde::de::DeserializeOwned>(resp: &HttpResponse) -> Result
         #[serde(default)]
         error_description: String,
     }
-    let malformed = || {
-        OAuthError::Malformed(format!("HTTP {}: {}", resp.status, String::from_utf8_lossy(&resp.body)))
-    };
+    let malformed = || OAuthError::Malformed(format!("HTTP {}: {}", resp.status, glimpse(&resp.body)));
     if (200..300).contains(&resp.status) {
         return serde_json::from_slice(&resp.body).map_err(|_| malformed());
     }
@@ -76,5 +85,14 @@ mod tests {
             parse_json::<Tokens>(&resp(502, "<html>")),
             Err(OAuthError::Malformed("HTTP 502: <html>".into()))
         );
+    }
+
+    #[test]
+    fn malformed_keeps_only_the_start_of_a_long_body() {
+        let page = format!("<html>{}</html>", "x".repeat(2000));
+        let Err(OAuthError::Malformed(msg)) = parse_json::<Tokens>(&resp(502, &page)) else { panic!() };
+        assert!(msg.starts_with("HTTP 502: <html>xxx"), "{msg}");
+        assert!(msg.ends_with("..."), "{msg}");
+        assert!(msg.chars().count() <= 100, "{} chars", msg.chars().count());
     }
 }
