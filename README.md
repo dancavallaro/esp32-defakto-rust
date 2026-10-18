@@ -121,7 +121,7 @@ curl -X POST localhost:8081/reset
 ```
 
 `checkin/build.sh` tests the service, then builds a container image
-for amd64 and arm64 and pushes it to `ghcr.io/dancavallaro/esp32-spiffe-rust/checkin`, tagged `latest` and with the
+for amd64 and arm64 and pushes it to `ghcr.io/dancavallaro/esp32-defakto-rust/checkin`, tagged `latest` and with the
 version in `checkin/Cargo.toml`. Pass `--no-push` to only build.
 
 ## The attestor
@@ -185,7 +185,7 @@ one it has. A good one logs `enrollment reloaded: N devices`. It polls rather th
 updates a mounted Secret by swapping a symlink.
 
 `attestor/build.sh` tests `esp-attest` and the attestor, then builds a container image for amd64 and arm64 and pushes
-it to `ghcr.io/dancavallaro/esp32-spiffe-rust/esp32-attestor`, tagged `latest` and with the version in
+it to `ghcr.io/dancavallaro/esp32-defakto-rust/esp32-attestor`, tagged `latest` and with the version in
 `attestor/Cargo.toml`. Pass `--no-push` to only build. The image runs `serve`, so mount the enrollment file and the
 TLS pair at the default paths.
 

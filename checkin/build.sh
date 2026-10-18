@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-image=ghcr.io/dancavallaro/esp32-spiffe-rust/checkin
+image=ghcr.io/dancavallaro/esp32-defakto-rust/checkin
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' checkin/Cargo.toml)
 output=--push
 if [[ "${1:-}" == --no-push ]]; then
