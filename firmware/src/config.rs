@@ -37,6 +37,9 @@ pub struct Config {
     /// The check-in service's endpoint; empty for none.
     #[default("")]
     checkin_url: &'static str,
+    /// The attestation methods enabled, and which one a new board starts with.
+    #[default("efuse,tee")]
+    attestors: &'static str,
     #[default("efuse")]
     default_attestor: &'static str,
     /// The eFuse key block (0 to 5) holding the device secret for `efuse`.
@@ -65,6 +68,7 @@ fn defaults() -> Settings {
         login_client_id: CONFIG.login_client_id.into(),
         svid_audience: CONFIG.svid_audience.into(),
         device_id: CONFIG.device_id.into(),
+        attestors: CONFIG.attestors.into(),
         obo_audience: CONFIG.obo_audience.into(),
         subject_token_type: CONFIG.subject_token_type.into(),
         requested_token_type: CONFIG.requested_token_type.into(),

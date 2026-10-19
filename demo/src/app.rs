@@ -84,11 +84,13 @@ pub struct App {
     pub status: Status,
     /// Whether a sign-in ends by recording a check-in.
     pub checks_in: bool,
+    /// Whether more than one attestor is enabled, for a long press to switch between.
+    pub switchable: bool,
 }
 
 impl App {
     pub fn new(status: Status) -> Self {
-        Self { screen: Screen::Idle, status, checks_in: false }
+        Self { screen: Screen::Idle, status, checks_in: false, switchable: true }
     }
 
     /// Events that don't fit the current screen are ignored: they come from a
@@ -104,7 +106,7 @@ impl App {
         let in_flight = matches!(self.screen, Starting | Qr { .. } | Progress(_));
         let (next, cmd) = match (&self.screen, ev) {
             (Idle, Event::Tap) => (Starting, Command::StartLogin),
-            (Idle, Event::LongPress) if !self.status.switching => {
+            (Idle, Event::LongPress) if self.switchable && !self.status.switching => {
                 self.status.switching = true;
                 (Idle, Command::SwitchAttestor)
             }
@@ -349,6 +351,14 @@ mod tests {
         let mut app = App::new(Status::default());
         assert_eq!(app.handle(Event::LongPress), Command::SwitchAttestor);
         assert_eq!(app.screen, Screen::Idle);
+    }
+
+    #[test]
+    fn long_press_ignored_with_one_attestor() {
+        let mut app = App::new(Status::default());
+        app.switchable = false;
+        assert_eq!(app.handle(Event::LongPress), Command::None);
+        assert!(!app.status.switching);
     }
 
     #[test]

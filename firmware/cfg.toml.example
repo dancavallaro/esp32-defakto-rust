@@ -18,6 +18,7 @@ svid_audience = ""
 # subject_token_type = "urn:ietf:params:oauth:token-type:id_token"
 # requested_token_type = "urn:defakto:security:token-type:jwt-svid-obo"
 # obo_audience = "defakto-demo"
+# attestors = "efuse,tee"    # those enabled; "tee" alone for the XIAO, which has no eFuse key
 # default_attestor = "efuse" # or "tee"; a long press on idle switches, and the choice survives reboots
 # efuse_hmac_key = 5         # eFuse key block holding the secret for "efuse"
 # Build-time only: with these, saving settings in the wizard takes a Defakto

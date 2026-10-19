@@ -83,10 +83,13 @@ A device needs no settings at build time. When its settings are incomplete, or w
 1. The screen shows a QR code that joins the device's own WiFi network, `defakto-setup-XXXX`, with a fresh random
    password beneath it.
 2. Your phone opens the setup page by itself, as on hotel WiFi. If it doesn't, browse to `http://192.168.4.1`.
-3. The page lists nearby networks and every setting `cfg.toml` holds. Saving stores them on the device, which
-   restarts with them.
+3. The page lists nearby networks and every setting `cfg.toml` holds, including which attestation methods are
+   enabled. Saving stores them on the device, which restarts with them.
 
 Settings saved this way take precedence over `cfg.toml`, which then only supplies defaults.
+
+Unticking an attestation method retires it. If you tighten Defakto's SVID issuance policy so that only the TEE's
+attributes satisfy it, eFuse HMAC attestation starts failing; untick it, and the device attests only with the TEE.
 
 ### Guarding it with a DevID
 
@@ -235,7 +238,7 @@ TLS pair at the default paths.
 ## Hardware
 
 The device is a Waveshare ESP32-C6-Touch-LCD-1.47. A tap on the screen or the BOOT button starts a check-in. A long
-press on the idle screen switches between eFuse and TEE attestation. Holding the screen as it boots opens the setup
+press on the idle screen switches between eFuse and TEE attestation, when the setup wizard enables both. Holding the screen as it boots opens the setup
 wizard.
 
 A Seeed XIAO ESP32C6 also works, headless and with TEE attestation only. It prints each screen to serial.

@@ -12,7 +12,7 @@ use demo::flow::{self, Clock, Config};
 
 use log::{info, warn};
 
-use crate::attest::{self, Attestors};
+use crate::attest::Attestors;
 use crate::http::EspClient;
 use crate::net;
 
@@ -97,7 +97,7 @@ fn run(
 /// worked. The choice is kept either way, so the screen shows a failing
 /// backend as unattested instead of hiding it.
 fn switch(cfg: &Config, attestors: &Attestors, active: &mut Active) -> anyhow::Result<bool> {
-    let kind = attest::next(&active.kind);
+    let kind = attestors.next(&active.kind);
     *active = Active { kind: kind.to_owned(), attestor: attestors.build(kind)? };
     attestors.save(kind)?;
     match flow::fetch_svid(&mut EspClient, cfg, active.attestor.as_ref(), EspClock.unix_now(), &nonce()) {

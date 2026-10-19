@@ -56,8 +56,9 @@ A Cargo workspace of six packages, plus the firmware as a separate project:
   drives the JD9853 panel one strip at a time (there's no RAM for a full framebuffer) and `ui` draws the screens.
   `console.rs` also prints each screen to serial (the QR code as text), and is the only output with
   `--features xiao`. `touch` polls the AXS5106L, and `demo::gesture` turns its samples into taps and long presses.
-  The BOOT button (GPIO9) also taps. A long press on the idle screen switches the attestor between `efuse` (the
-  default) and `tee` and re-attests; the choice is kept in NVS (namespace `demo`, key `attestor`). The Waveshare
+  The BOOT button (GPIO9) also taps. A long press on the idle screen switches the attestor between those the
+  `attestors` setting enables (`efuse` and `tee`, from the wizard's checkboxes) and re-attests; the choice is kept
+  in NVS (namespace `demo`, key `attestor`). With one enabled, a long press does nothing. The Waveshare
   board's secret is burned into eFuse key block 5 (`HMAC_UP`, read-protected), which `efuse_hmac_key` in `cfg.toml`
   names. Under ESP-TEE the HMAC call is a TEE secure service; TEE secure storage stays in development mode, so it
   never claims that key block.

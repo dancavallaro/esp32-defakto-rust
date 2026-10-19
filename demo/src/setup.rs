@@ -2,6 +2,7 @@
 //! stored, and the page that edits them. The firmware serves the page from its
 //! own access point, so a device needs nothing configured before it's flashed.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use defakto::http::HttpClient;
@@ -15,7 +16,12 @@ pub enum Kind {
     Text,
     Password,
     Url,
+    /// Checkboxes, kept as the chosen values joined with commas.
+    Choices(&'static [(&'static str, &'static str)]),
 }
+
+/// The attestation methods, as the firmware names them and as the page does.
+pub const ATTESTORS: &[(&str, &str)] = &[("efuse", "eFuse HMAC"), ("tee", "ESP-TEE")];
 
 pub struct Field {
     pub key: &'static str,
@@ -40,6 +46,13 @@ pub const FIELDS: &[Field] = &[
     field("login_client_id", "Sign-in", "Client ID", "", Kind::Text),
     field("svid_audience", "Defakto", "Trust domain issuer", "The iss of the trust domain's JWT-SVIDs.", Kind::Url),
     field("device_id", "Defakto", "Device ID", "As enrolled with the attestor.", Kind::Text),
+    field(
+        "attestors",
+        "Defakto",
+        "Attestation methods",
+        "A long press on the idle screen switches between those enabled.",
+        Kind::Choices(ATTESTORS),
+    ),
     field("obo_audience", "Defakto", "OBO audience", "Who the OBO token is for.", Kind::Text),
     Field { advanced: true, ..field("subject_token_type", "Defakto", "Subject token type", "", Kind::Text) },
     Field { advanced: true, ..field("requested_token_type", "Defakto", "Requested token type", "", Kind::Text) },
@@ -58,6 +71,8 @@ pub struct Settings {
     pub login_client_id: String,
     pub svid_audience: String,
     pub device_id: String,
+    /// The attestation methods enabled, such as `efuse,tee`.
+    pub attestors: String,
     pub obo_audience: String,
     pub subject_token_type: String,
     pub requested_token_type: String,
@@ -75,6 +90,7 @@ impl Settings {
             "login_client_id" => &self.login_client_id,
             "svid_audience" => &self.svid_audience,
             "device_id" => &self.device_id,
+            "attestors" => &self.attestors,
             "obo_audience" => &self.obo_audience,
             "subject_token_type" => &self.subject_token_type,
             "requested_token_type" => &self.requested_token_type,
@@ -92,6 +108,7 @@ impl Settings {
             "login_client_id" => &mut self.login_client_id,
             "svid_audience" => &mut self.svid_audience,
             "device_id" => &mut self.device_id,
+            "attestors" => &mut self.attestors,
             "obo_audience" => &mut self.obo_audience,
             "subject_token_type" => &mut self.subject_token_type,
             "requested_token_type" => &mut self.requested_token_type,
@@ -110,16 +127,31 @@ impl Settings {
     }
 
     /// These settings with any fields `form` names replaced. Unknown keys are
-    /// ignored, so settings saved by a newer build still load.
+    /// ignored, so settings saved by a newer build still load. A choices field
+    /// collects every value posted for it, and drops values it doesn't offer.
     pub fn overlaid(&self, form: &str) -> Settings {
         let mut out = self.clone();
+        let mut chosen: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
         for (key, value) in form_urlencoded::parse(form.as_bytes()) {
-            if let Some(slot) = out.slot(&key) {
+            if let Some(f) = FIELDS.iter().find(|f| f.key == key && matches!(f.kind, Kind::Choices(_))) {
+                chosen.entry(f.key).or_default().extend(value.split(',').map(|v| v.trim().to_owned()));
+            } else if let Some(slot) = out.slot(&key) {
                 // A WiFi password may begin or end with a space.
                 *slot = if key == "wifi_psk" { value.into_owned() } else { value.trim().to_owned() };
             }
         }
+        for f in FIELDS {
+            if let (Kind::Choices(choices), Some(values)) = (f.kind, chosen.get(f.key)) {
+                let kept: Vec<&str> = choices.iter().map(|(v, _)| *v).filter(|v| values.iter().any(|c| c == v)).collect();
+                *out.slot(f.key).expect("every field has a slot") = kept.join(",");
+            }
+        }
         out
+    }
+
+    /// The attestation methods enabled, in `ATTESTORS` order.
+    pub fn enabled_attestors(&self) -> Vec<&'static str> {
+        ATTESTORS.iter().map(|(v, _)| *v).filter(|v| self.attestors.split(',').any(|a| a.trim() == *v)).collect()
     }
 
     /// What the portal's form makes of these settings, or why it can't be
@@ -138,9 +170,18 @@ impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         for f in FIELDS {
             let value = self.get(f.key).unwrap_or_default();
+            if let Kind::Choices(choices) = f.kind {
+                let mut values = value.split(',').filter(|v| !v.is_empty());
+                if let Some(other) = values.find(|v| !choices.iter().any(|(c, _)| c == v)) {
+                    return Err(format!("{other:?} isn't one of the {}.", f.label.to_lowercase()));
+                }
+            }
             if value.is_empty() {
                 if f.required {
-                    return Err(format!("{} is required.", f.label));
+                    return Err(match f.kind {
+                        Kind::Choices(_) => format!("Choose at least one of the {}.", f.label.to_lowercase()),
+                        _ => format!("{} is required.", f.label),
+                    });
                 }
                 continue;
             }
@@ -269,7 +310,8 @@ pub fn ap_password(random: &[u8]) -> String {
 
 const STYLE: &str = "body{font:16px system-ui,sans-serif;background:#0c0816;color:#e9e4f5;margin:0 auto;\
 max-width:32rem;padding:1rem}h1{font-size:1.4rem}h2{font-size:1rem;color:#a07cff;margin:1.5rem 0 .5rem}\
-label{display:block;margin:.75rem 0 .25rem}input{box-sizing:border-box;width:100%;padding:.6rem;\
+label,legend{display:block;margin:.75rem 0 .25rem;padding:0}fieldset{border:0;margin:0;padding:0}\
+.check{display:flex;align-items:center;gap:.5rem;margin:.4rem 0}.check input{width:auto;margin:0}input{box-sizing:border-box;width:100%;padding:.6rem;\
 font:inherit;border:1px solid #2a2140;border-radius:6px;background:#160f26;color:inherit}\
 small{color:#7d7690}code{word-break:break-all;color:#e9e4f5}textarea{box-sizing:border-box;width:100%;\
 padding:.6rem;font:12px ui-monospace,monospace;border:1px solid #2a2140;border-radius:6px;background:#160f26;\
@@ -319,12 +361,16 @@ pub fn page(current: &Settings, networks: &[String], error: Option<&str>, gate: 
 
 fn input(html: &mut String, f: &Field, current: &Settings) {
     let value = current.get(f.key).unwrap_or_default();
+    if let Kind::Choices(choices) = f.kind {
+        return checkboxes(html, f, choices, value);
+    }
     let (kind, value, extra) = match f.kind {
         // Never sent back: anyone who reaches the portal would read it.
         Kind::Password => ("password", "", if value.is_empty() { "" } else { " placeholder=\"unchanged\"" }),
         Kind::Url => ("url", value, ""),
         Kind::Text if f.key == "wifi_ssid" => ("text", value, " list=networks"),
         Kind::Text => ("text", value, ""),
+        Kind::Choices(_) => unreachable!("drawn as checkboxes"),
     };
     let required = if f.required { " required" } else { "" };
     let _ = write!(
@@ -335,6 +381,24 @@ fn input(html: &mut String, f: &Field, current: &Settings) {
         label = f.label,
         value = escape(value),
     );
+    if !f.help.is_empty() {
+        let _ = write!(html, "<small>{}</small>", f.help);
+    }
+}
+
+/// The empty hidden value posts the field even with every box unticked, so
+/// unticking them all clears it rather than leaving it unchanged.
+fn checkboxes(html: &mut String, f: &Field, choices: &[(&str, &str)], value: &str) {
+    let _ = write!(html, "<fieldset><legend>{}</legend><input type=hidden name={} value=\"\">", f.label, f.key);
+    for (choice, label) in choices {
+        let checked = if value.split(',').any(|v| v == *choice) { " checked" } else { "" };
+        let _ = write!(
+            html,
+            "<label class=check><input type=checkbox name={} value={choice}{checked}>{label}</label>",
+            f.key
+        );
+    }
+    html.push_str("</fieldset>");
     if !f.help.is_empty() {
         let _ = write!(html, "<small>{}</small>", f.help);
     }
@@ -399,6 +463,7 @@ mod tests {
             login_client_id: "client".into(),
             svid_audience: "https://td".into(),
             device_id: "defakto-demo".into(),
+            attestors: "efuse,tee".into(),
             obo_audience: "defakto-demo".into(),
             subject_token_type: "urn:ietf:params:oauth:token-type:id_token".into(),
             requested_token_type: "urn:defakto:security:token-type:jwt-svid-obo".into(),
@@ -456,6 +521,38 @@ mod tests {
     #[test]
     fn defaults_alone_are_incomplete() {
         assert!(Settings::default().validate().is_err());
+    }
+
+    #[test]
+    fn attestors_follow_the_ticked_boxes() {
+        let only_tee = complete().submit("attestors=&attestors=tee").unwrap();
+        assert_eq!(only_tee.attestors, "tee");
+        assert_eq!(only_tee.enabled_attestors(), ["tee"]);
+        let both = only_tee.submit("attestors=&attestors=tee&attestors=efuse&attestors=nvs").unwrap();
+        assert_eq!(both.attestors, "efuse,tee", "in ATTESTORS order, without unknown values");
+        assert_eq!(complete().submit("login_client_id=x").unwrap().attestors, "efuse,tee", "unchanged when not posted");
+        assert_eq!(complete().submit("attestors=").unwrap_err(), "Choose at least one of the attestation methods.");
+    }
+
+    #[test]
+    fn stored_attestors_round_trip() {
+        let s = Settings { attestors: "tee".into(), ..complete() };
+        assert_eq!(Settings::default().overlaid(&s.to_form()), s);
+    }
+
+    #[test]
+    fn attestors_from_the_build_must_be_known() {
+        let s = Settings { attestors: "efuse,hsm".into(), ..complete() };
+        assert_eq!(s.validate(), Err("\"hsm\" isn't one of the attestation methods.".into()));
+        assert_eq!(s.enabled_attestors(), ["efuse"]);
+    }
+
+    #[test]
+    fn page_ticks_the_enabled_attestors() {
+        let html = page(&Settings { attestors: "tee".into(), ..complete() }, &[], None, None);
+        assert!(html.contains("<input type=hidden name=attestors value=\"\">"));
+        assert!(html.contains("value=efuse>eFuse HMAC"));
+        assert!(html.contains("value=tee checked>ESP-TEE"));
     }
 
     #[test]

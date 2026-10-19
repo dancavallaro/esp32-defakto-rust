@@ -100,18 +100,7 @@ fn run() -> Result<()> {
 
     let settings = config::load(&nvs);
     let cfg = settings.flow_config();
-    let attestors = Attestors::new(settings.device_id.clone(), CONFIG.efuse_hmac_key, nvs.clone());
-    let mut kind = attestors.saved(CONFIG.default_attestor);
-    // Failing here would restart forever on a board whose saved backend is broken.
-    let attestor = match attestors.build(&kind) {
-        Ok(attestor) => attestor,
-        Err(e) => {
-            warn!("building the {kind} attestor failed: {e:#}; using {}", attest::FALLBACK);
-            kind = attest::FALLBACK.to_owned();
-            attestors.build(&kind)?
-        }
-    };
-    let mut app = App::new(Status { attestor: attestor.label().to_string(), ..Status::default() });
+    let mut app = App::new(Status::default());
     app.checks_in = cfg.checkin_url.is_some();
     screens.show(&app);
 
@@ -130,6 +119,15 @@ fn run() -> Result<()> {
         let wizard = setup::Wizard { current: settings, gate: config::devid_gate(), problem };
         return run_wizard(peripherals.modem, sysloop, nvs, wizard, &mut screens);
     }
+
+    // After the wizard's chance to run, so settings whose only attestor is
+    // broken can still be changed.
+    let attestors =
+        Attestors::new(settings.device_id.clone(), CONFIG.efuse_hmac_key, settings.enabled_attestors(), nvs.clone());
+    let (kind, attestor) = attestors.build_any(&attestors.saved(CONFIG.default_attestor))?;
+    app.status.attestor = attestor.label().to_string();
+    app.switchable = attestors.switchable();
+    screens.show(&app);
 
     let net = net::connect(peripherals.modem, sysloop, nvs.clone(), &settings.wifi_ssid, &settings.wifi_psk)?;
     info!("time {} (unix)", net::unix_now());
