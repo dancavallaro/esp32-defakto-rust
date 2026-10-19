@@ -36,8 +36,10 @@ use crate::worker::{Active, EspClock, Worker};
 
 const POLL: Duration = Duration::from_millis(20);
 const RESTART_DELAY: Duration = Duration::from_secs(5);
-/// How long after boot a press can start that, held, opens the setup wizard.
-const SETUP_HOLD_WINDOW: Duration = Duration::from_secs(1);
+/// How long after the logo appears a press can start that, held, opens the
+/// setup wizard. Touch resets as the device boots and takes a finger already
+/// on the glass as its baseline, so the press has to start after that.
+const SETUP_HOLD_WINDOW: Duration = Duration::from_secs(2);
 /// Long enough for the portal's "saved" page to reach the phone.
 const SAVED_RESTART_DELAY: Duration = Duration::from_secs(2);
 /// How long the DevID check's outcome stays on screen before the restart.

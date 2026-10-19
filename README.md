@@ -77,8 +77,10 @@ fresh attestation key to enroll.
 </p>
 <p align="center"><sub>Scan to join the device's network and configure it, and it shows who set it up. (Renders, with example values.)</sub></p>
 
-A device needs no settings at build time. When its settings are incomplete, or when you hold the screen as it boots
-(or press and hold BOOT just after power-on), it opens a setup wizard:
+A device needs no settings at build time. When its settings are incomplete, or when you touch and hold the logo within
+2 seconds of it appearing (or press and hold BOOT then), it opens a setup wizard. A finger already on the screen
+at power-on doesn't count, since the touch controller takes it as its baseline, and BOOT held at power-on starts the
+chip's download mode instead:
 
 1. The screen shows a QR code that joins the device's own WiFi network, `defakto-setup-XXXX`, with a fresh random
    password beneath it.
