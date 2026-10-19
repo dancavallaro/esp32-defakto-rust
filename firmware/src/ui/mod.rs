@@ -208,7 +208,7 @@ fn setup(s: &mut Strip, qr: Option<&QrCode>, ssid: &str, password: &str, portal:
 fn provisioning(s: &mut Strip, p: &Provisioning) {
     let (heading, color, detail) = match p {
         Provisioning::Checking => ("Checking DevID...", FG, None),
-        Provisioning::Configured(developer) => return set_up_by(s, developer),
+        Provisioning::Configured(user) => return set_up_by(s, user),
         Provisioning::Refused(why) => ("Settings refused", WARN, Some(why.as_str())),
     };
     let mut y = centered(s, heading, 120, &HEADING, color) + 10;
@@ -220,13 +220,13 @@ fn provisioning(s: &mut Strip, p: &Provisioning) {
 }
 
 /// Who the DevID says set the device up, laid out like the check-in receipt.
-fn set_up_by(s: &mut Strip, developer: &str) {
-    let path = developer.strip_prefix("spiffe://").unwrap_or(developer);
+fn set_up_by(s: &mut Strip, user: &str) {
+    let path = user.strip_prefix("spiffe://").unwrap_or(user);
     let (trust_domain, name) = (path.split('/').next().unwrap_or(path), path.rsplit('/').next().unwrap_or(path));
     let mut y = centered(s, "Set up by", BAR_H as i32 + 30, &HEADING, DIM) + 6;
     y = centered(s, name, y, &BIG, FG) + 10;
     y = banner(s, "verified DevID", y) + 24;
-    for (label, value) in [("DEVELOPER", developer), ("TRUST DOMAIN", trust_domain)] {
+    for (label, value) in [("USER", user), ("TRUST DOMAIN", trust_domain)] {
         y = paragraph(s, label, y, DIM, Alignment::Left) + 1;
         y = paragraph(s, value, y, FG, Alignment::Left) + 7;
     }

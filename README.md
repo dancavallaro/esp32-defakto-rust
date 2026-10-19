@@ -73,7 +73,7 @@ fresh attestation key to enroll.
 
 <p align="center">
   <img src="docs/images/setup.png" width="180" alt="Setup screen: a QR code that joins the device's setup network, its name, the password, and 'then open 192.168.4.1'">
-  <img src="docs/images/set-up-by.png" width="180" alt="'Set up by alice', with a verified-DevID check, the developer's SPIFFE ID and the trust domain">
+  <img src="docs/images/set-up-by.png" width="180" alt="'Set up by alice', with a verified-DevID check, the user's SPIFFE ID and the trust domain">
 </p>
 <p align="center"><sub>Scan to join the device's network and configure it, and it shows who set it up. (Renders, with example values.)</sub></p>
 
@@ -90,8 +90,8 @@ Settings saved this way take precedence over `cfg.toml`, which then only supplie
 
 ### Guarding it with a DevID
 
-The password on screen only proves that someone is standing at the device. To let only your developers set one up,
-add the trust domain's DevID issuer, and the SPIFFE IDs to accept, to `cfg.toml`:
+The password on screen only proves that someone is standing at the device. To let only people in your trust domain
+set one up, add the trust domain's DevID issuer, and the SPIFFE IDs to accept, to `cfg.toml`:
 
 ```toml
 devid_issuer = "https://fed.spirl.org/t-…/td-…"

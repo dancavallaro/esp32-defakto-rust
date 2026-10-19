@@ -40,7 +40,7 @@ pub enum Screen {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Provisioning {
     Checking,
-    /// Taken, from the developer with this SPIFFE ID.
+    /// Taken, from the user with this SPIFFE ID.
     Configured(String),
     Refused(String),
 }

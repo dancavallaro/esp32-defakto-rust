@@ -39,7 +39,7 @@ pub fn render(screen: &Screen, status: &Status) {
         }
         Screen::Restarting => println!("Saved. Restarting…"),
         Screen::Provisioning(Provisioning::Checking) => println!("Checking the DevID that came with the new settings…"),
-        Screen::Provisioning(Provisioning::Configured(developer)) => println!("Set up by {developer}. Restarting…"),
+        Screen::Provisioning(Provisioning::Configured(user)) => println!("Set up by {user}. Restarting…"),
         Screen::Provisioning(Provisioning::Refused(why)) => println!("Settings refused: {why}. Restarting…"),
     }
 }

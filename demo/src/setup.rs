@@ -176,7 +176,7 @@ impl Settings {
 /// The form field carrying the DevID JWT-SVID, when DevID guards the portal.
 pub const DEVID_FIELD: &str = "devid";
 
-/// Who may save settings when DevID guards the portal: developers whose DevID
+/// Who may save settings when DevID guards the portal: users whose DevID
 /// JWT-SVIDs `issuer` signs, with SPIFFE IDs under `subjects`. Their token's
 /// audience is the device ID being saved, so it's bound to that device.
 #[derive(Debug, Clone, PartialEq)]
@@ -213,7 +213,7 @@ impl DevIdGate {
     }
 
     /// Verifies `token` against the trust domain's keys, returning the
-    /// developer's SPIFFE ID.
+    /// user's SPIFFE ID.
     pub fn check(&self, http: &mut impl HttpClient, token: &str, audience: &str, now: i64) -> Result<String, String> {
         let keys = verify::fetch_jwks(http, &self.issuer).map_err(|e| format!("fetching keys: {e}"))?;
         let expected = Expected { issuer: &self.issuer, audience, now };
@@ -346,7 +346,7 @@ fn devid_input(html: &mut String, gate: &DevIdGate, device_id: &str) {
         html,
         "<h2>DevID</h2><label for={DEVID_FIELD}>DevID JWT-SVID</label>\
          <textarea id={DEVID_FIELD} name={DEVID_FIELD} rows=5 required autocapitalize=off autocorrect=off \
-         spellcheck=false></textarea><small>Only developers in {td} can set up this device. On your laptop, run \
+         spellcheck=false></textarea><small>Only users in {td} can set up this device. On your laptop, run \
          <code>defakto dev-id fetch jwt-svid --trust-domain {td} --audience {aud}</code> (the device ID above) \
          and paste <code>~/.defakto/dev-id/{td}/svids/jwt-svid</code> here.</small>",
         aud = escape(device_id),

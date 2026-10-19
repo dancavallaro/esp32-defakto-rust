@@ -233,11 +233,11 @@ fn provision(
     app.screen = Screen::Provisioning(Provisioning::Checking);
     screens.show(&app);
     let outcome = check_devid(modem, sysloop, nvs.clone(), &pending, &devid)
-        .and_then(|developer| config::save(&nvs, &pending).map(|_| developer).map_err(|e| format!("{e:#}")));
+        .and_then(|user| config::save(&nvs, &pending).map(|_| user).map_err(|e| format!("{e:#}")));
     app.screen = Screen::Provisioning(match outcome {
-        Ok(developer) => {
-            info!("took the settings from {developer}");
-            Provisioning::Configured(developer)
+        Ok(user) => {
+            info!("took the settings from {user}");
+            Provisioning::Configured(user)
         }
         Err(why) => {
             warn!("refused the settings: {why}");
@@ -252,7 +252,7 @@ fn provision(
     restart();
 }
 
-/// The SPIFFE ID of the developer whose DevID vouches for `pending`.
+/// The SPIFFE ID of the user whose DevID vouches for `pending`.
 fn check_devid(
     modem: Modem<'static>,
     sysloop: EspSystemEventLoop,
