@@ -96,6 +96,9 @@ fn run() -> Result<()> {
         peripherals.pins.gpio20,
     )?;
 
+    if let Err(e) = config::rebuild(&nvs) {
+        warn!("applying this build's settings failed: {e:#}");
+    }
     if let Some(pending) = config::take_pending(&nvs) {
         provision(peripherals.modem, sysloop, nvs, pending, &mut screens);
     }

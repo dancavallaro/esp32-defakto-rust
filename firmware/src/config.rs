@@ -1,5 +1,6 @@
 //! Settings: what the setup wizard saved in NVS, over the build-time defaults
-//! from `cfg.toml` (see `cfg.toml.example`), which may be left empty.
+//! from `cfg.toml` (see `cfg.toml.example`), which may be left empty. A newly
+//! flashed build's first boot puts its non-empty defaults back over the saved ones.
 
 use anyhow::Result;
 use demo::setup::{self, DevIdGate, Settings};
@@ -11,6 +12,8 @@ const SETTINGS: &str = "settings";
 const PENDING: &str = "pending";
 /// Why the last settings were refused, for the wizard to show.
 const PROBLEM: &str = "problem";
+/// The ELF SHA-256 of the build that last applied its settings.
+const BUILD: &str = "build";
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -81,6 +84,22 @@ pub fn load(nvs: &EspDefaultNvsPartition) -> Settings {
         Some(saved) => defaults().overlaid(&saved),
         None => defaults(),
     }
+}
+
+/// On a newly flashed build's first boot, its settings replace the saved
+/// ones, except where `cfg.toml` leaves a field empty.
+pub fn rebuild(nvs: &EspDefaultNvsPartition) -> Result<()> {
+    let mut sha = [0 as core::ffi::c_char; 65];
+    unsafe { esp_idf_svc::sys::esp_app_get_elf_sha256(sha.as_mut_ptr(), sha.len()) };
+    let sha = unsafe { core::ffi::CStr::from_ptr(sha.as_ptr()) }.to_string_lossy().into_owned();
+    if read(nvs, BUILD).as_deref() == Some(sha.as_str()) {
+        return Ok(());
+    }
+    if let Some(saved) = read(nvs, SETTINGS) {
+        log::info!("new build: applying cfg.toml over the saved settings");
+        save(nvs, &defaults().overlaid(&saved).rebuilt(&defaults()))?;
+    }
+    write(nvs, BUILD, &sha)
 }
 
 pub fn save(nvs: &EspDefaultNvsPartition, settings: &Settings) -> Result<()> {

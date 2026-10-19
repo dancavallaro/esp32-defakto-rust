@@ -149,6 +149,19 @@ impl Settings {
         out
     }
 
+    /// These settings with every field `build` sets replaced, so a newly
+    /// flashed build's settings win and the wizard's fill in what it leaves empty.
+    pub fn rebuilt(&self, build: &Settings) -> Settings {
+        let mut out = self.clone();
+        for f in FIELDS {
+            let value = build.get(f.key).unwrap_or_default();
+            if !value.is_empty() {
+                *out.slot(f.key).expect("every field has a slot") = value.to_owned();
+            }
+        }
+        out
+    }
+
     /// The attestation methods enabled, in `ATTESTORS` order.
     pub fn enabled_attestors(&self) -> Vec<&'static str> {
         ATTESTORS.iter().map(|(v, _)| *v).filter(|v| self.attestors.split(',').any(|a| a.trim() == *v)).collect()
@@ -489,6 +502,14 @@ mod tests {
     fn overlay_keeps_unnamed_fields_and_ignores_unknown_keys() {
         let s = complete().overlaid("login_client_id=+other+&from_the_future=1");
         assert_eq!(s, Settings { login_client_id: "other".into(), ..complete() });
+    }
+
+    #[test]
+    fn a_new_build_replaces_what_it_sets_and_keeps_the_rest() {
+        let build = Settings { login_token_url: "https://auth0/token".into(), attestors: "efuse,tee".into(), ..Default::default() };
+        let saved = Settings { attestors: "tee".into(), ..complete() };
+        let s = saved.rebuilt(&build);
+        assert_eq!(s, Settings { login_token_url: "https://auth0/token".into(), ..complete() });
     }
 
     #[test]

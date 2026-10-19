@@ -46,7 +46,8 @@ A Cargo workspace of six packages, plus the firmware as a separate project:
 - `firmware/` (`demo-firmware`): ESP-IDF std firmware for `riscv32imac-esp-espidf`. It is excluded from the
   workspace because it builds on nightly with `build-std`, through its own `rust-toolchain.toml`. Settings come
   from the setup wizard, saved in NVS (namespace `demo`, key `settings`), over defaults from `firmware/cfg.toml`
-  (see `cfg.toml.example`) at build time, all of which may be left empty. The wizard (`setup`) runs when the
+  (see `cfg.toml.example`) at build time, all of which may be left empty. The first boot of a newly flashed build (by its ELF SHA-256,
+  key `build`) writes `cfg.toml`'s non-empty values over the saved settings, so flashing re-applies `cfg.toml`. The wizard (`setup`) runs when the
   settings are incomplete, or when the screen or BOOT is held from just after the logo appears (a finger already
   down at power-on is invisible to touch): it starts an access point `defakto-setup-XXXX` with a random password, shows a QR code that joins it, and answers every DNS query with
   itself so the phone opens the portal. `demo::setup` and `demo::captive` hold its form, validation and DNS.
