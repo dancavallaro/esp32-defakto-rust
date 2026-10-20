@@ -44,6 +44,7 @@ pub const FIELDS: &[Field] = &[
     field("login_device_url", "Sign-in", "Device authorization endpoint", "From the IdP's OIDC discovery document.", Kind::Url),
     field("login_token_url", "Sign-in", "Token endpoint", "From the same discovery document.", Kind::Url),
     field("login_client_id", "Sign-in", "Client ID", "", Kind::Text),
+    field("defakto_endpoint", "Defakto", "Defakto endpoint", "The serverless API, which also serves token exchange.", Kind::Url),
     field("svid_audience", "Defakto", "Trust domain issuer", "The iss of the trust domain's JWT-SVIDs.", Kind::Url),
     field("device_id", "Defakto", "Device ID", "As enrolled with the attestor.", Kind::Text),
     field(
@@ -69,6 +70,7 @@ pub struct Settings {
     pub login_device_url: String,
     pub login_token_url: String,
     pub login_client_id: String,
+    pub defakto_endpoint: String,
     pub svid_audience: String,
     pub device_id: String,
     /// The attestation methods enabled, such as `efuse,tee`.
@@ -88,6 +90,7 @@ impl Settings {
             "login_device_url" => &self.login_device_url,
             "login_token_url" => &self.login_token_url,
             "login_client_id" => &self.login_client_id,
+            "defakto_endpoint" => &self.defakto_endpoint,
             "svid_audience" => &self.svid_audience,
             "device_id" => &self.device_id,
             "attestors" => &self.attestors,
@@ -106,6 +109,7 @@ impl Settings {
             "login_device_url" => &mut self.login_device_url,
             "login_token_url" => &mut self.login_token_url,
             "login_client_id" => &mut self.login_client_id,
+            "defakto_endpoint" => &mut self.defakto_endpoint,
             "svid_audience" => &mut self.svid_audience,
             "device_id" => &mut self.device_id,
             "attestors" => &mut self.attestors,
@@ -213,8 +217,7 @@ impl Settings {
 
     pub fn flow_config(&self) -> flow::Config {
         flow::Config {
-            serverless_url: flow::SERVERLESS_URL.into(),
-            token_url: flow::TOKEN_URL.into(),
+            defakto_endpoint: self.defakto_endpoint.clone(),
             svid_audience: self.svid_audience.clone(),
             login_device_url: self.login_device_url.clone(),
             login_token_url: self.login_token_url.clone(),
@@ -474,6 +477,7 @@ mod tests {
             login_device_url: "https://idp/device".into(),
             login_token_url: "https://idp/token".into(),
             login_client_id: "client".into(),
+            defakto_endpoint: "https://defakto".into(),
             svid_audience: "https://td".into(),
             device_id: "defakto-demo".into(),
             attestors: "efuse,tee".into(),

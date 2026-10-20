@@ -95,8 +95,7 @@ impl flow::Clock for SystemClock {
 
 fn config() -> Config {
     Config {
-        serverless_url: var_or("DEMO_SERVERLESS_URL", flow::SERVERLESS_URL),
-        token_url: var_or("DEMO_TOKEN_URL", flow::TOKEN_URL),
+        defakto_endpoint: var_or("DEMO_DEFAKTO_ENDPOINT", flow::DEFAKTO_ENDPOINT),
         svid_audience: var_or("DEMO_SVID_AUDIENCE", ""),
         login_device_url: var_or("DEMO_LOGIN_DEVICE_URL", ""),
         login_token_url: var_or("DEMO_LOGIN_TOKEN_URL", ""),

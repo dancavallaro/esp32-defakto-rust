@@ -8,6 +8,8 @@ wifi_psk = ""
 login_device_url = ""
 login_token_url = ""
 login_client_id = ""
+# Defakto's serverless API, which also serves token exchange at /oauth/token.
+defakto_endpoint = "https://defakto.o.cavnet.cloud"
 # The Trust Domain Server's issuer URL (the `iss` of any JWT-SVID it issues).
 svid_audience = ""
 # The check-in service's endpoint, which receives the OBO token as a

@@ -15,8 +15,10 @@ use crate::app::Event;
 use crate::claims::DisplayClaims;
 use crate::login::{self, DeviceAuthorization, PollOutcome};
 
-pub const SERVERLESS_URL: &str = "https://defakto.o.cavnet.cloud";
-pub const TOKEN_URL: &str = "https://defakto.o.cavnet.cloud/oauth/token";
+/// The Defakto endpoint the host uses when `DEMO_DEFAKTO_ENDPOINT` isn't set.
+pub const DEFAKTO_ENDPOINT: &str = "https://defakto.o.cavnet.cloud";
+/// Where token exchange lives under the Defakto endpoint.
+pub const TOKEN_PATH: &str = "/oauth/token";
 pub const LOGIN_SCOPE: &str = "openid profile email";
 const JSON_CONTENT_TYPE: &str = "application/json";
 
@@ -29,8 +31,8 @@ const CANCEL_CHECK: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub serverless_url: String,
-    pub token_url: String,
+    /// Defakto's serverless API, which also serves token exchange at `TOKEN_PATH`.
+    pub defakto_endpoint: String,
     pub svid_audience: String,
     /// The IdP's device authorization and token endpoints, from its OIDC
     /// discovery document. They differ per IdP, so neither is derived.
@@ -44,6 +46,16 @@ pub struct Config {
     /// The check-in service the OBO token is presented to. Without one, a
     /// sign-in ends at the token exchange.
     pub checkin_url: Option<String>,
+}
+
+impl Config {
+    fn endpoint(&self) -> &str {
+        self.defakto_endpoint.trim_end_matches('/')
+    }
+
+    pub fn token_url(&self) -> String {
+        format!("{}{TOKEN_PATH}", self.endpoint())
+    }
 }
 
 pub trait Clock {
@@ -79,7 +91,7 @@ pub fn fetch_svid(
     now: i64,
     nonce: &str,
 ) -> Result<SvidToken, FlowError> {
-    Ok(serverless::fetch_jwt_svid(http, &cfg.serverless_url, &cfg.svid_audience, attestor, now, nonce)?)
+    Ok(serverless::fetch_jwt_svid(http, cfg.endpoint(), &cfg.svid_audience, attestor, now, nonce)?)
 }
 
 pub fn start_login(http: &mut impl HttpClient, cfg: &Config) -> Result<DeviceAuthorization, FlowError> {
@@ -210,7 +222,7 @@ pub fn exchange_token(
         requested_token_type: &cfg.requested_token_type,
         audience: &cfg.obo_audience,
     };
-    Ok(token_exchange::exchange(http, &cfg.token_url, &req, svid)?)
+    Ok(token_exchange::exchange(http, &cfg.token_url(), &req, svid)?)
 }
 
 /// Presents the OBO token to the check-in service, which learns from it both
@@ -266,8 +278,7 @@ mod tests {
 
     fn cfg() -> Config {
         Config {
-            serverless_url: SERVERLESS_URL.into(),
-            token_url: TOKEN_URL.into(),
+            defakto_endpoint: DEFAKTO_ENDPOINT.into(),
             svid_audience: "https://issuer.example".into(),
             login_device_url: "https://idp.example/device".into(),
             login_token_url: "https://idp.example/token".into(),
@@ -523,8 +534,14 @@ mod tests {
             "software HMAC",
         );
         let err = fetch_svid(&mut http, &cfg(), &attestor, NOW, "00").unwrap_err();
-        assert_eq!(http.requests[0].url, format!("{SERVERLESS_URL}{}", serverless::FETCH_JWT_SVID_PATH));
+        assert_eq!(http.requests[0].url, format!("{DEFAKTO_ENDPOINT}{}", serverless::FETCH_JWT_SVID_PATH));
         assert_eq!(err.to_string(), "network: timeout");
+    }
+
+    #[test]
+    fn token_url_ignores_a_trailing_slash() {
+        let cfg = Config { defakto_endpoint: format!("{DEFAKTO_ENDPOINT}/"), ..cfg() };
+        assert_eq!(cfg.token_url(), format!("{DEFAKTO_ENDPOINT}{TOKEN_PATH}"));
     }
 
     #[test]
@@ -534,7 +551,7 @@ mod tests {
         let svid = SvidToken { spiffe_id: "spiffe://p/iot/defakto-demo".into(), token: "svid.jwt.sig".into() };
 
         assert_eq!(exchange_token(&mut http, &cfg(), "id.tok.en", &svid), Ok(obo));
-        assert_eq!(http.requests[0].url, TOKEN_URL);
+        assert_eq!(http.requests[0].url, format!("{DEFAKTO_ENDPOINT}{TOKEN_PATH}"));
         assert_eq!(
             http.requests[0].body,
             token_exchange::request_form(

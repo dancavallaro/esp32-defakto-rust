@@ -75,7 +75,7 @@ that drives the display, touch, WiFi and keys. This mirrors libcommon's `*_core`
   vars, loaded from `host/.env`. The variables are `DEMO_SECRET_B64`, `DEMO_SVID_AUDIENCE`, `DEMO_LOGIN_DEVICE_URL`,
   `DEMO_LOGIN_TOKEN_URL`, `DEMO_LOGIN_CLIENT_ID` (the two URLs come from the IdP's OIDC discovery document), and
   optionally `DEMO_DEVICE_ID`, `DEMO_SUBJECT_TOKEN_TYPE`, `DEMO_REQUESTED_TOKEN_TYPE`, `DEMO_OBO_AUDIENCE`, `DEMO_CHECKIN_URL`,
-  `DEMO_SERVERLESS_URL` and `DEMO_TOKEN_URL`.
+  and `DEMO_DEFAKTO_ENDPOINT` (Defakto's serverless API, whose `/oauth/token` is the token exchange).
 - Attestor: `cargo run -p esp32-attestor -- serve --enrollment … --tls-cert … --tls-key …` (the other flags have
   defaults, see `--help`), and `cargo run -p esp32-attestor -- enroll hmac <device_id>` or `-- enroll tee <device_id>
   <pubkey-hex>` for enrollment entries.

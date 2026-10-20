@@ -29,6 +29,9 @@ pub struct Config {
     login_token_url: &'static str,
     #[default("")]
     login_client_id: &'static str,
+    /// Defakto's serverless API; token exchange is at its `/oauth/token`.
+    #[default("https://defakto.o.cavnet.cloud")]
+    defakto_endpoint: &'static str,
     #[default("")]
     svid_audience: &'static str,
     #[default("urn:ietf:params:oauth:token-type:id_token")]
@@ -69,6 +72,7 @@ fn defaults() -> Settings {
         login_device_url: CONFIG.login_device_url.into(),
         login_token_url: CONFIG.login_token_url.into(),
         login_client_id: CONFIG.login_client_id.into(),
+        defakto_endpoint: CONFIG.defakto_endpoint.into(),
         svid_audience: CONFIG.svid_audience.into(),
         device_id: CONFIG.device_id.into(),
         attestors: CONFIG.attestors.into(),
