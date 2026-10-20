@@ -30,7 +30,7 @@ pub struct Config {
     #[default("")]
     login_client_id: &'static str,
     /// Defakto's serverless API; token exchange is at its `/oauth/token`.
-    #[default("https://defakto.o.cavnet.cloud")]
+    #[default("")]
     defakto_endpoint: &'static str,
     #[default("")]
     svid_audience: &'static str,

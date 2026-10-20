@@ -95,7 +95,7 @@ impl flow::Clock for SystemClock {
 
 fn config() -> Config {
     Config {
-        defakto_endpoint: var_or("DEMO_DEFAKTO_ENDPOINT", flow::DEFAKTO_ENDPOINT),
+        defakto_endpoint: var_or("DEMO_DEFAKTO_ENDPOINT", ""),
         svid_audience: var_or("DEMO_SVID_AUDIENCE", ""),
         login_device_url: var_or("DEMO_LOGIN_DEVICE_URL", ""),
         login_token_url: var_or("DEMO_LOGIN_TOKEN_URL", ""),
@@ -112,6 +112,7 @@ fn var_or(name: &str, default: &str) -> String {
 }
 
 fn fetch_svid(http: &mut UreqClient, cfg: &Config) -> Result<SvidToken> {
+    anyhow::ensure!(!cfg.defakto_endpoint.is_empty(), "set DEMO_DEFAKTO_ENDPOINT");
     anyhow::ensure!(!cfg.svid_audience.is_empty(), "set DEMO_SVID_AUDIENCE");
     let device_id = var_or("DEMO_DEVICE_ID", "defakto-demo");
     validate_device_id(&device_id).map_err(anyhow::Error::msg)?;

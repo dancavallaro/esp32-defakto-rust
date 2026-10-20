@@ -15,8 +15,6 @@ use crate::app::Event;
 use crate::claims::DisplayClaims;
 use crate::login::{self, DeviceAuthorization, PollOutcome};
 
-/// The Defakto endpoint the host uses when `DEMO_DEFAKTO_ENDPOINT` isn't set.
-pub const DEFAKTO_ENDPOINT: &str = "https://defakto.o.cavnet.cloud";
 /// Where token exchange lives under the Defakto endpoint.
 pub const TOKEN_PATH: &str = "/oauth/token";
 pub const LOGIN_SCOPE: &str = "openid profile email";
@@ -275,6 +273,8 @@ mod tests {
             }
         }
     }
+
+    const DEFAKTO_ENDPOINT: &str = "https://defakto.example";
 
     fn cfg() -> Config {
         Config {
